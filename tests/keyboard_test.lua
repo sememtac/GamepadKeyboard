@@ -34,6 +34,17 @@ end
 function IsInRaid() return world.raid end
 function IsInGuild() return world.guild end
 local lastTell, lastTellType -- whoever whispered last
+-- Name lookup (C_AutoComplete): the players it knows, same realm without the realm.
+local ROSTER = { "Bob", "Bobby", "Boris-Other", "Bonnie", "Bodhi", "Alice" }
+C_AutoComplete = { GetAutoCompleteResults = function(text, numResults, cursorPosition, allowFullMatch, include, exclude)
+	assert(include == 1 and exclude == 0, "the box's own include / exclude")
+	local results = {}
+	for _, name in ipairs(ROSTER) do
+		if name:lower():sub(1, #text) == text:lower() and #results < numResults then results[#results + 1] = { name = name, priority = 1 } end
+	end
+	return results
+end }
+function Ambiguate(name, context) return name end
 world.time = 0
 function GetTime() return world.time end
 local function poll() world.time = world.time + 0.016; W.update(0.016) end
@@ -524,6 +535,73 @@ type("ab")
 pressA(0.7)
 check(holdEntered == 1 and not kb:IsShown() and holdBox:GetText() == "ab", "in another text box, holding A is that box's Enter")
 holdBox:ClearFocus(); poll()
+
+-- ---- names, for a box that looks them up (the mail's To:) ----------------------------------------------------------
+local mail = W.CreateFrame("Frame", "MockMailFrame", UIParent)
+local mailTo = W.CreateFrame("EditBox", "SendMailNameEditBox", mail, "InputBoxTemplate")
+mailTo.center = { 400, 700 }
+mailTo.autoCompleteSource, mailTo.autoCompleteParams, mailTo.autoCompleteContext = C_AutoComplete.GetAutoCompleteResults, { 1, 0 }, "mail"
+local function nameKeys()
+	local list = {}
+	for _, f in ipairs(W.frames) do
+		if f.parent == kb and f.template == "UIPanelButtonTemplate" and f.key == nil then list[#list + 1] = f end
+	end
+	return list
+end
+local function shownNames()
+	local list = {}
+	for _, f in ipairs(nameKeys()) do if f.shown then list[#list + 1] = f.text end end
+	return table.concat(list, ",")
+end
+manager:FrameShown(mail)
+padA(function() mailTo:SetFocus() end)
+check(kb:IsShown() and shownNames() == "" and kb.height == 84 + 6 * 34 and key("1").point[3] == -56 - 34,
+	"the mail's To: box: a row for names above the keys, empty with nothing typed")
+type("bo")
+check(shownNames() == "Bob,Bobby,Boris-Other,Bonnie", "typing: the names it knows that start so, four at most (" .. shownNames() .. ")")
+check(overrides[key("1")] and overrides[key("1")].up == nameKeys()[1], "up from the top row of keys: the names")
+playerClick(nameKeys()[2])
+check(mailTo:GetText() == "Bobby" and shownNames() == "" and preview() == "Bobby|", "A on a name: it's put in (and nothing left to pick)")
+check(overrides[key("1")].up == true, "...and up from the keys goes nowhere again")
+pad("PAD3")
+check(mailTo:GetText() == "Bobb" and shownNames() == "Bobby", "Del: the names follow")
+type("x")
+check(shownNames() == "", "no one by that name: no names")
+kb:SmartNavigationCloseHandler(); mailTo:ClearFocus(); mailTo.text = ""; manager:FrameHidden(mail); poll()
+-- Only Blizzard's own lookup, never a box's own function or completion handler.
+local custom = W.CreateFrame("EditBox", nil, mail, "InputBoxTemplate")
+custom.center = { 400, 700 }
+local calls = 0
+custom.autoCompleteSource, custom.autoCompleteParams = function() calls = calls + 1; return { { name = "Bob" } } end, { 1, 0 }
+manager:FrameShown(mail)
+padA(function() custom:SetFocus() end)
+type("bo")
+check(calls == 0 and shownNames() == "" and kb.height == 84 + 5 * 34, "a box with its own lookup function: not called, no name row")
+kb:SmartNavigationCloseHandler(); custom:ClearFocus(); poll()
+local handled = W.CreateFrame("EditBox", nil, mail, "InputBoxTemplate")
+handled.center = { 400, 700 }
+handled.autoCompleteSource, handled.autoCompleteParams = C_AutoComplete.GetAutoCompleteResults, { 1, 0 }
+handled.customAutoCompleteFunction = function() end
+padA(function() handled:SetFocus() end)
+type("bo")
+check(shownNames() == "", "a box with its own completion handler: no name row")
+kb:SmartNavigationCloseHandler(); handled:ClearFocus(); manager:FrameHidden(mail); poll()
+chatBox.autoCompleteSource, chatBox.autoCompleteParams = C_AutoComplete.GetAutoCompleteResults, { 1, 0 } -- (a whisper's)
+openChat("SAY"); poll()
+type("bo")
+check(shownNames() == "" and kb.height == 84 + 5 * 34, "chat: no name row (its own list is for whisper targets)")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+chatBox.autoCompleteSource, chatBox.autoCompleteParams = nil, nil
+local withCommand = W.CreateFrame("EditBox", nil, mail, "InputBoxTemplate")
+withCommand.center = { 400, 700 }
+withCommand.autoCompleteSource, withCommand.autoCompleteParams = C_AutoComplete.GetAutoCompleteResults, { 1, 0 }
+withCommand.command, withCommand.addSpaceToAutoComplete = "/invite", true
+manager:FrameShown(mail)
+padA(function() withCommand:SetFocus() end)
+type("ali")
+playerClick(nameKeys()[1])
+check(withCommand:GetText() == "/invite Alice ", "a box with a command and a space, as Blizzard's list puts them in")
+kb:SmartNavigationCloseHandler(); withCommand:ClearFocus(); manager:FrameHidden(mail); poll()
 
 -- ---- the chat key ------------------------------------------------------------------------------------------------
 openChat("SAY"); poll()

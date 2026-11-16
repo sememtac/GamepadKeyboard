@@ -20,6 +20,9 @@
 -- is on (on release), a hold sends - a real press, so Enter's secure macro line runs as from the Enter key.
 -- Keys type at the cursor, which the preview shows.
 --
+-- A text box that looks names up as they're typed (the mail's To:) gets them as keys on a row of their own:
+-- Blizzard's list there only follows typing on a real keyboard and is picked with Tab or the mouse.
+--
 -- For chat, a chat key steps through the chat types there are to use (Say, Party, Raid, Instance, Guild,
 -- a reply to the last whisper). It switches the way typing does: it puts the type's slash command before
 -- the text, and the chat box's own parsing switches the chat and keeps the text.
@@ -71,6 +74,8 @@ local keys = {}; -- page -> rows of key buttons
 local page = "letters";
 local target; -- the text box being typed into
 local isChat = false;
+local suggesting = false; -- the box looks names up (a row of name keys above the keys)
+local suggestions = {}; -- the name keys
 local text = "";
 local cursor = 0; -- characters before the cursor
 local shift = false;
@@ -198,6 +203,9 @@ local function RefreshNavigation()
 		return;
 	end
 	local rows = keys[page];
+	if suggesting then
+		rows = { suggestions, unpack(keys[page]) };
+	end
 	for _, row in ipairs(rows) do
 		for _, button in ipairs(row) do
 			applied[button] = applied[button] or {};
@@ -296,6 +304,40 @@ end
 local CARET = "|cffffd100|||r"; -- "||" a "|", then "|r" ends the colour
 local PREVIEW_LENGTH = 48;
 
+-- Names for a box that looks them up as it's typed in: Blizzard's own list (AutoCompleteBox) updates only
+-- on a real keyboard's typing, is picked with Tab or the mouse, and calling its update from here would leave
+-- addon-written state that the chat's Enter reads. So: the box's own lookup - only Blizzard's read-only
+-- C_AutoComplete.GetAutoCompleteResults, never a box's own function - shown as keys; picking one puts the
+-- name in as Blizzard's list does (AutoCompleteButton_OnClick).
+local MAX_SUGGESTIONS = 4;
+
+local function LooksUpNames(box)
+	return not box.chatFrame and C_AutoComplete ~= nil and box.autoCompleteSource == C_AutoComplete.GetAutoCompleteResults
+		and type(box.autoCompleteParams) == "table" and box.customAutoCompleteFunction == nil;
+end
+
+local function UpdateSuggestions()
+	local names = {};
+	if suggesting and target and text ~= "" then
+		local results = C_AutoComplete.GetAutoCompleteResults(text, MAX_SUGGESTIONS + 1, cursor, true, unpack(target.autoCompleteParams)) or {};
+		if not (#results == 1 and results[1].name == text) then -- the name already typed: nothing to pick
+			for i = 1, math.min(#results, MAX_SUGGESTIONS) do
+				names[i] = results[i].name;
+			end
+		end
+	end
+	local changed = false;
+	for i, button in ipairs(suggestions) do
+		changed = changed or button.suggestion ~= names[i];
+		button.suggestion = names[i];
+		button:SetText(names[i] and Ambiguate(names[i], "none") or "");
+		button:SetShown(names[i] ~= nil);
+	end
+	if changed then
+		RefreshNavigation(); -- up from the top row of keys: to a name, or nowhere
+	end
+end
+
 local function UpdatePreview()
 	local length = Utf8Length(text);
 	local first = math.max(0, math.min(cursor - PREVIEW_LENGTH + 8, length - PREVIEW_LENGTH));
@@ -308,6 +350,7 @@ local function UpdatePreview()
 			chatKey:SetText(ChatLabel(target));
 		end
 	end
+	UpdateSuggestions();
 end
 
 local function UpdateLabels()
@@ -362,6 +405,13 @@ local function Insert(characters)
 	SetText(before .. characters .. after, cursor + Utf8Length(characters));
 end
 
+local function ChooseSuggestion(button)
+	if target and button.suggestion then
+		local name = Ambiguate(button.suggestion, "none");
+		SetText((target.command and (target.command .. " ") or "") .. name .. (target.addSpaceToAutoComplete and " " or ""));
+	end
+end
+
 local function MoveCursor(step)
 	if target then
 		Sync();
@@ -372,6 +422,14 @@ end
 
 -- The page's keys, the chat key only for chat; each row centred over the keys it shows.
 local function Layout()
+	local top = suggesting and 1 or 0;
+	local nameWidth = (keyboard:GetWidth() - 28 - (MAX_SUGGESTIONS - 1) * GAP) / MAX_SUGGESTIONS;
+	for i, button in ipairs(suggestions) do
+		button:SetSize(nameWidth, KEY_HEIGHT);
+		button:ClearAllPoints();
+		button:SetPoint("TOPLEFT", 14 + (i - 1) * (nameWidth + GAP), -56);
+		button:SetShown(suggesting and button.suggestion ~= nil);
+	end
 	for name, rows in pairs(keys) do
 		for r, row in ipairs(rows) do
 			local width = 0;
@@ -385,13 +443,13 @@ local function Layout()
 			for _, button in ipairs(row) do
 				if button:IsShown() then
 					button:ClearAllPoints();
-					button:SetPoint("TOPLEFT", x, -56 - (r - 1) * (KEY_HEIGHT + GAP));
+					button:SetPoint("TOPLEFT", x, -56 - (r - 1 + top) * (KEY_HEIGHT + GAP));
 					x = x + button.width + GAP;
 				end
 			end
 		end
 	end
-	keyboard:SetHeight(84 + #keys[page] * (KEY_HEIGHT + GAP));
+	keyboard:SetHeight(84 + (#keys[page] + top) * (KEY_HEIGHT + GAP));
 end
 
 -- The next chat type there is to use, after the box's own: its slash command goes before the text, and the
@@ -749,6 +807,13 @@ local function CreateKeyboard()
 		end
 	end
 
+	for i = 1, MAX_SUGGESTIONS do
+		local button = CreateFrame("Button", nil, keyboard, "UIPanelButtonTemplate");
+		button:SetScript("OnClick", ChooseSuggestion);
+		button:Hide();
+		suggestions[i] = button;
+	end
+
 	-- A presses this one (hidden, secure: Enter's macro line runs from it).
 	local aButton = CreateFrame("Button", "GamepadKeyboardAButton", keyboard, "SecureActionButtonTemplate");
 	aButton:RegisterForClicks("AnyDown", "AnyUp");
@@ -843,6 +908,7 @@ local function Open(box)
 	end
 	target = box;
 	isChat = box.chatFrame ~= nil;
+	suggesting = LooksUpNames(box);
 	text = box:GetText() or "";
 	cursor = Utf8Length(text);
 	if isChat and text == "" then

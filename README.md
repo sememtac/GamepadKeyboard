@@ -41,6 +41,13 @@ there. Enter does that too, with a note in the chat, for the few lines it can't 
 whispers, chat types with no slash prefix, channels picked by name
 rather than number, and lines too long to fit with their prefix.
 
+## Names
+
+A text box that looks names up as you type - the mail's **To:**, say - gets a row of name keys above the
+keyboard: up to four players the game knows (friends, guild, group, people you've mailed or met) that start
+with what you've typed. D-pad up to them, A puts the name in. Blizzard's own list under the box only follows
+typing on a real keyboard and is picked with Tab or the mouse, so it doesn't show for the on-screen keyboard.
+
 ## Controller or real keyboard
 
 Whichever you're using has the text box:
@@ -109,9 +116,15 @@ does what Enter does after sending: the chat type sticks (for sticky types), the
 chat closes. In any other text box, Enter runs that box's own `OnEnterPressed`. Because the Enter key is
 secure, the keyboard is a protected frame; it only opens out of combat and closes when combat starts.
 
+Names come from the box's own lookup - only when it's Blizzard's `C_AutoComplete.GetAutoCompleteResults`
+(read-only) with the box's include / exclude flags, never a box's own function or completion handler, and
+not for chat. Blizzard's list (`AutoCompleteBox`) isn't touched: its update runs only on user input, and
+calling it from here would leave addon-written state (its parent, selection) that the chat's Enter reads.
+A picked name goes in as Blizzard's list puts it (`Ambiguate(name, "none")`, the box's command and space).
+
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 137 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 148 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
 focus, the menu dial's button already up), and real-keyboard keys delivered as the game delivers them
@@ -130,6 +143,8 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
 - [ ] X deletes, Y types a space, LB / RB move the gold cursor, and keys type at the cursor. With the
       controller on another window (LT / RT) or the keyboard closed, X / Y / LB / RB do what they did before
       (crossbar, the window's own actions).
+- [ ] Mail To:: typing a few letters shows up to four names above the keys; D-pad up and A puts one in, and
+      the mail can be sent to it.
 - [ ] The chat key: in a group it goes Say -> Party (-> Raid / Instance / Guild / To <last whisperer>) and
       back to Say, the chat box's header changes with it, the text stays, and Enter sends to that chat.
 - [ ] LT / RT move between the keyboard and other open windows.
