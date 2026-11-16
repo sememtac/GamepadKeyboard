@@ -80,18 +80,26 @@ local chatFrame = W.CreateFrame("Frame", "ChatFrame1", UIParent)
 local chatBox = W.CreateFrame("EditBox", "ChatFrame1EditBox", chatFrame)
 chatBox.chatFrame = chatFrame
 chatBox.center = { 300, 200 }
-chatBox.chatType, chatBox.stickyType = "SAY", "SAY"
+chatBox.attrs.chatType, chatBox.attrs.stickyType = "SAY", "SAY"
 chatBox.scripts.OnEditFocusLost = function(self)
-	if self:GetText() == "" then self.chatType, self.tellTarget, self.deactivated = self.stickyType, nil, true end
+	if self:GetText() == "" then
+		self.attrs.chatType, self.attrs.tellTarget, self.deactivated = self.attrs.stickyType, nil, true
+	end
+end
+-- OnTextChanged -> ParseText(0): "/p " switches the chat type and leaves the rest, as when typing.
+chatBox.scripts.OnTextChanged = function(self)
+	local rest = self.text:match("^/p%s(.*)$")
+	if rest then self.attrs.chatType, self.text = "PARTY", rest end
 end
 chatFrame.editBox = chatBox
 function chatFrame:FocusGamepad() chatBox:SetFocus() end
 function chatFrame:UnfocusGamepad() chatBox:ClearFocus() end
 function chatFrame:SetGamepadFocus() GamepadMode.FrameControlsManager:FrameShown(self) end -- the menu dial's Chat
-local function openChat(chatType, tellTarget)
-	chatBox.chatType, chatBox.tellTarget, chatBox.deactivated = chatType, tellTarget, nil
+local function openChat(chatType, tellTarget, channelTarget)
+	chatBox.attrs.chatType, chatBox.attrs.tellTarget, chatBox.attrs.channelTarget, chatBox.deactivated = chatType, tellTarget, channelTarget, nil
 	chatFrame:SetGamepadFocus()
 end
+ChatTypeInfo = { SAY = { sticky = 1 }, PARTY = { sticky = 1 }, CHANNEL = { sticky = 1 }, WHISPER = { sticky = 0 } }
 local poisoned = {}
 local function poison(name) return function() poisoned[#poisoned + 1] = name; error(name .. " must not be called by the keyboard") end end
 for _, name in ipairs({ "SendMessage", "SendText", "ClearChat", "Deactivate", "ParseText" }) do chatBox[name] = poison("editBox:" .. name) end
@@ -100,10 +108,21 @@ C_ChatInfo = { SendChatMessage = poison("C_ChatInfo.SendChatMessage") }
 
 -- A player's A on a key (SmartNavigation clicks it) or a mouse click.
 -- Frames pass between presses, as in the game (the focus watcher runs every frame).
+local macros = {}
 local function playerClick(button)
 	poll()
 	assert(button and button:IsVisible() and button:IsEnabled(), "clicking a missing, hidden or disabled key")
-	button:Click()
+	if W.hasTemplate(button.template, "SecureActionButtonTemplate") then
+		-- SecureActionButton_OnClick: PreClick, the action on release (useOnKeyDown off), PostClick.
+		assert(button.OnSmartNavClick == nil and button.scripts.OnClick == nil, "the secure OnClick must stay Blizzard's")
+		if button.scripts.PreClick then button.scripts.PreClick(button, "LeftButton", false) end
+		if button.attrs.useOnKeyDown == false and button.clicks[1] == "AnyUp" and button.attrs.type == "macro" and button.attrs.macrotext ~= "" then
+			macros[#macros + 1] = button.attrs.macrotext -- C_Macro.RunMacroText, securely
+		end
+		if button.scripts.PostClick then button.scripts.PostClick(button, "LeftButton", false) end
+	else
+		button:Click()
+	end
 	poll()
 end
 
@@ -125,17 +144,17 @@ check(kb and kb.point and kb.point[1] == "BOTTOMLEFT" and kb.point[2] == chatFra
 check(kb and kb:IsShown(), "chat box focused with the controller: the keyboard opens")
 check(indexOf(kb) ~= nil and manager.focusedFrame == kb and manager.popupReturnFrames[kb] == chatFrame,
 	"as a popup in Blizzard's gamepad UI, returning to the chat")
-check(not chatBox:HasFocus() and not chatBox.deactivated and chatBox.chatType == "WHISPER" and chatBox.tellTarget == "Bob",
+check(not chatBox:HasFocus() and not chatBox.deactivated and chatBox.attrs.chatType == "WHISPER" and chatBox.attrs.tellTarget == "Bob",
 	"the chat box stays open and keeps its whisper target (a placeholder space kept it from closing)")
 check(key("SHIFT").locked, "an empty chat line starts with Shift on")
 type("hi"); playerClick(key("SPACE")); type("there")
 check(chatBox:GetText() == "Hi there" and kb.Preview.text == "Hi there_", "keys type into the chat box (its own preview) - first letter capital")
 playerClick(key("BACK"))
 check(chatBox:GetText() == "Hi ther", "Del removes the last letter")
-playerClick(key("DONE"))
-check(not kb:IsShown() and indexOf(kb) == nil, "Done closes the keyboard")
-check(manager.focusedFrame == chatFrame and chatBox:HasFocus() and chatBox:GetText() == "Hi ther" and chatBox.tellTarget == "Bob",
-	"...and the controller is back on the chat box with the text, still to Bob - the chat's own A sends it")
+kb:SmartNavigationCloseHandler() -- B
+check(not kb:IsShown() and indexOf(kb) == nil, "B closes the keyboard")
+check(manager.focusedFrame == chatFrame and chatBox:HasFocus() and chatBox:GetText() == "Hi ther" and chatBox.attrs.tellTarget == "Bob",
+	"...and the controller is back on the chat box with the text, still to Bob, nothing sent")
 poll(); poll()
 check(not kb:IsShown(), "it doesn't open again for the box it went back to")
 check(#poisoned == 0, "the keyboard never called a chat send function")
@@ -143,15 +162,66 @@ check(#poisoned == 0, "the keyboard never called a chat send function")
 -- nothing changes focus): the keyboard comes back.
 chatFrame:SetGamepadFocus(); poll()
 check(kb:IsShown() and chatBox:GetText() == "Hi ther", "Chat chosen again while back on the chat box: the keyboard comes back, with the text")
-playerClick(key("DONE"))
-check(not kb:IsShown() and chatBox:HasFocus(), "...and goes back again")
--- The player sends (Blizzard's A), the chat closes; the next chat opens the keyboard again.
-chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+local enter = key("ENTER")
+check(enter.text == "Enter" and enter.protected and enter.attrs.type == "macro" and enter.attrs.useOnKeyDown == false and enter.clicks[1] == "AnyUp",
+	"Enter is a secure macro button acting on release")
+playerClick(enter)
+check(macros[#macros] == "/w Bob Hi ther", "Enter sends the whisper, as a secure macro line (" .. tostring(macros[#macros]) .. ")")
+check(not kb:IsShown() and indexOf(chatFrame) == nil and chatBox:GetText() == "" and chatBox.deactivated,
+	"...and closes the keyboard and the chat, like Enter")
+poll()
 openChat("SAY"); poll()
 check(kb:IsShown(), "next time chat is focused, it opens again")
 check(chatBox:GetText() == " ", "(the placeholder while the keyboard is open)")
 kb:SmartNavigationCloseHandler()
 check(not kb:IsShown() and chatBox:GetText() == "" and chatBox:HasFocus(), "B with nothing typed: back to an empty chat box (placeholder gone)")
+chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+local before = #macros
+openChat("SAY"); poll()
+playerClick(key("ENTER"))
+check(#macros == before and not kb:IsShown() and indexOf(chatFrame) == nil, "Enter with nothing typed: nothing sent, chat closed")
+poll()
+-- Party, a typed command, a channel; the chat type sticks as with Enter.
+openChat("PARTY"); poll()
+type("pull")
+playerClick(key("ENTER"))
+check(macros[#macros] == "/p Pull" and chatBox.attrs.stickyType == "PARTY", "party chat: /p, and party sticks for the next line")
+poll()
+openChat("SAY"); poll()
+playerClick(key("SYMBOLS")); playerClick(key("/")); playerClick(key("LETTERS")); type("p "); type("hi")
+check(chatBox.attrs.chatType == "PARTY" and chatBox:GetText() == "hi" and kb.Preview.text == "hi_", "typing /p and a space switches to party, as typing does")
+playerClick(key("ENTER"))
+check(macros[#macros] == "/p hi", "...and Enter sends it to party")
+poll()
+openChat("SAY"); poll()
+playerClick(key("SYMBOLS")); playerClick(key("/")); playerClick(key("LETTERS")); type("dance")
+playerClick(key("ENTER"))
+check(macros[#macros] == "/dance", "a command is run as typed (" .. tostring(macros[#macros]) .. ")")
+poll()
+openChat("CHANNEL", nil, 2); poll()
+type("lfg")
+playerClick(key("ENTER"))
+check(macros[#macros] == "/2 Lfg", "a numbered channel: /2")
+poll()
+-- A chat type a macro line can't say: back to the chat box for the chat's own A.
+before = #macros
+openChat("VOICE_TEXT"); poll()
+type("hi")
+playerClick(key("ENTER"))
+check(#macros == before and not kb:IsShown() and chatBox:HasFocus() and chatBox:GetText() == "Hi" and world.printed[#world.printed]:find("A"),
+	"a chat type a macro line can't say: back on the chat box with the text, to send with A")
+kb:Hide(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+openChat("BN_WHISPER", "|Kq1|k"); poll()
+type("yo")
+playerClick(key("ENTER"))
+check(#macros == before and not kb:IsShown() and chatBox:HasFocus() and chatBox:GetText() == "Yo",
+	"a Battle.net whisper: back on the chat box for its own A (its target may be a protected name)")
+kb:Hide(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+openChat("WHISPER", "Bob"); poll()
+type("x"); chatBox.text = string.rep("x", 250) -- a long line, as the box allows
+playerClick(key("ENTER"))
+check(#macros == before and chatBox:HasFocus() and #chatBox:GetText() == 250,
+	"a whisper too long for one macro line with its /w: back on the chat box, nothing cut")
 chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 
 -- ---- pages, shift, limits -------------------------------------------------------------------------------------
@@ -170,7 +240,7 @@ local hasPipe = false
 for _, f in ipairs(W.frames) do if f.key == "|" then hasPipe = true end end
 check(not hasPipe, "no | key (the game reads it as an escape code)")
 kb:Hide() -- Escape on a real keyboard
-check(manager.focusedFrame == chatFrame and chatBox:GetText() == "Ok!", "closed by Escape: same as Done")
+check(manager.focusedFrame == chatFrame and chatBox:GetText() == "Ok!", "closed by Escape: same as B")
 chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 
 -- ---- any other text box: a window with a name box ----------------------------------------------------------------
@@ -179,6 +249,8 @@ local nameBox = W.CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
 nameBox.maxLetters = 5
 nameBox.center = { 500, 800 }
 nameBox.text = "Tot"
+local entered = 0
+nameBox.scripts.OnEnterPressed = function(self) entered = entered + 1; self:ClearFocus() end
 manager:FrameShown(panel)
 nameBox:SetFocus(); poll() -- A on the name box (OnSmartNavClick -> SetFocus)
 check(kb:IsShown() and manager.popupReturnFrames[kb] == panel, "a name box in a window: the keyboard opens over that window")
@@ -186,14 +258,16 @@ check(kb.point and kb.point[1] == "TOP" and kb.point[2] == nameBox, "below the b
 check(not key("SHIFT").locked and nameBox:GetText() == "Tot", "no Shift, and it starts from the box's text")
 type("ems"); type("x")
 check(nameBox:GetText() == "Totem", "keys type into the box, up to its letter limit")
-playerClick(key("DONE"))
-check(manager.focusedFrame == panel and nameBox:GetText() == "Totem", "Done: back to the window, the text stays")
+kb:SmartNavigationCloseHandler()
+check(manager.focusedFrame == panel and nameBox:GetText() == "Totem" and entered == 0, "B: back to the window, the text stays")
 poll(); poll()
 check(not kb:IsShown(), "it doesn't open again while the box still has focus")
 nameBox:SetFocus(); poll() -- A on the name box again: it still has focus
 check(kb:IsShown(), "A on the box again (it never lost focus): the keyboard comes back")
-playerClick(key("DONE"))
-nameBox:ClearFocus(); poll(); nameBox:SetFocus(); poll()
+playerClick(key("ENTER"))
+check(entered == 1 and not kb:IsShown() and manager.focusedFrame == panel and nameBox:GetText() == "Totem" and not nameBox:HasFocus(),
+	"Enter: the box's own Enter action (here: done typing), back to the window")
+poll(); nameBox:SetFocus(); poll()
 check(kb:IsShown(), "focusing the box again later opens it again")
 kb:Hide(); nameBox:ClearFocus(); poll()
 
@@ -251,7 +325,7 @@ type("pull")
 W.fireEvent("PLAYER_REGEN_DISABLED")
 world.combat = true
 poll()
-check(not kb:IsShown() and chatBox:GetText() == "Pull" and chatBox.chatType == "PARTY", "combat starts: the keyboard closes, the text and chat type stay")
+check(not kb:IsShown() and chatBox:GetText() == "Pull" and chatBox.attrs.chatType == "PARTY", "combat starts: the keyboard closes, the text and chat type stay")
 world.combat = false
 chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 -- Blizzard refusing the hide as combat starts: retried after combat.

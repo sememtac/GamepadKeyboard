@@ -2,13 +2,17 @@
 --
 -- When a text box gets typing focus in the game's controller UI (out of combat), the keyboard opens as a
 -- popup in Blizzard's gamepad UI, like its own panels: the D-pad moves between keys (left / right along a
--- row, up / down between rows), A types, B or Done goes back. Each key writes straight into the text box,
--- which is the preview, and going back returns the controller to the window the box belongs to.
+-- row, up / down between rows), A types, Enter does what Enter does, B goes back without it. Each key
+-- writes straight into the text box, which is the preview, and closing returns the controller to the
+-- window the box belongs to.
 --
--- Chat: the keyboard never sends. Going back returns to the chat box with the text, where the chat's own A
--- sends it - Blizzard's code, so whispers, channels, /p and emotes work as when typing, and nothing of ours
--- runs in its send path. Opening the keyboard moves the controller off the chat box, which would close an
--- empty box and reset its chat type (a whisper target, say); a single space put in first keeps it open.
+-- Enter in chat sends the message and closes the chat, as Enter does - but not through the chat's send code,
+-- which addon code shouldn't run (it writes chat state that secure commands read later). The Enter key is a
+-- secure macro button: the message becomes the line Enter would send (/w Bob ..., /p ..., /2 ..., or a typed
+-- command as is), run by Blizzard's secure macro action on the press. A chat type no macro line can say
+-- goes back to the chat box instead, where the chat's own A sends it. Opening the keyboard moves the
+-- controller off the chat box, which would close an empty box and reset its chat type (a whisper target,
+-- say); a single space put in first keeps it open. Enter in any other box runs that box's own Enter action.
 --
 -- In combat Blizzard's gamepad UI takes no addon windows, so the keyboard doesn't open (a real keyboard
 -- types as always), and an open one closes when combat starts; the text stays in the box.
@@ -18,14 +22,14 @@ local ADDON_NAME = ...;
 local KEY_WIDTH, KEY_HEIGHT, GAP = 36, 30, 4;
 local PLACEHOLDER = " ";
 
-local BACK, SHIFT, SYMBOLS, LETTERS, SPACE, DONE = "BACK", "SHIFT", "SYMBOLS", "LETTERS", "SPACE", "DONE";
+local BACK, SHIFT, SYMBOLS, LETTERS, SPACE, ENTER = "BACK", "SHIFT", "SYMBOLS", "LETTERS", "SPACE", "ENTER";
 local SPECIAL_KEYS = {
 	[BACK] = { label = "Del", units = 1.6 },
 	[SHIFT] = { label = "Shift", units = 1.6 },
 	[SYMBOLS] = { label = "?123", units = 2 },
 	[LETTERS] = { label = "ABC", units = 2 },
 	[SPACE] = { label = "Space", units = 5 },
-	[DONE] = { label = "Done", units = 2.5 },
+	[ENTER] = { label = "Enter", units = 2.5 },
 };
 -- No "|": the game reads it as the start of an escape code.
 local PAGES = {
@@ -34,13 +38,13 @@ local PAGES = {
 		{ "q", "w", "e", "r", "t", "y", "u", "i", "o", "p" },
 		{ "a", "s", "d", "f", "g", "h", "j", "k", "l", "'" },
 		{ SHIFT, "z", "x", "c", "v", "b", "n", "m", ",", "." },
-		{ SYMBOLS, SPACE, DONE },
+		{ SYMBOLS, SPACE, ENTER },
 	},
 	symbols = {
 		{ "!", "@", "#", "$", "%", "&", "*", "(", ")", "-", BACK },
 		{ "/", "\\", ":", ";", "\"", "?", "+", "=", "_", "~" },
 		{ "<", ">", "[", "]", "{", "}", "^", "`", "'", "," },
-		{ LETTERS, SPACE, DONE },
+		{ LETTERS, SPACE, ENTER },
 	},
 };
 
@@ -231,6 +235,7 @@ local function SetText(newText)
 	text = newText;
 	if target then
 		target:SetText(text);
+		text = target:GetText() or ""; -- the box may change it (chat: "/p " switches to party chat)
 	end
 	UpdatePreview();
 end
@@ -273,8 +278,6 @@ local function Press(button)
 		page = key == SYMBOLS and "symbols" or "letters";
 		Layout();
 		RefreshNavigation();
-	elseif key == DONE then
-		Close();
 	else
 		Insert(shift and key:upper() or key);
 		if shift then
@@ -288,15 +291,106 @@ end
 -- The keyboard
 -------------------------------------------------------------------------------
 
+-- The line Enter would send for a chat message, as a macro line: nil and false if there's nothing to send,
+-- nil and true if no macro line can say it (the chat's own A sends it instead).
+local CHAT_COMMANDS = {
+	SAY = "/s", YELL = "/y", EMOTE = "/e", PARTY = "/p", RAID = "/ra", RAID_WARNING = "/rw",
+	INSTANCE_CHAT = "/i", GUILD = "/g", OFFICER = "/o", WHISPER = "/w",
+}; -- not BN_WHISPER: its target can be a protected name string, which a macro line can't be trusted to keep
+local MAX_LINE = 255;
+
+local function ChatLine(box)
+	local message = box:GetText() or "";
+	if message == "" or message == PLACEHOLDER then
+		return nil, false;
+	end
+	local line;
+	if message:sub(1, 1) == "/" then
+		line = message; -- a command, run as typed
+	else
+		local chatType = box:GetAttribute("chatType");
+		if chatType == "WHISPER" then
+			local tellTarget = box:GetAttribute("tellTarget");
+			line = tellTarget and ("/w " .. tellTarget .. " " .. message);
+		elseif chatType == "CHANNEL" then
+			local channel = tonumber(box:GetAttribute("channelTarget"));
+			line = channel and ("/" .. channel .. " " .. message);
+		elseif CHAT_COMMANDS[chatType] then
+			line = CHAT_COMMANDS[chatType] .. " " .. message;
+		end
+	end
+	if not line or #line > MAX_LINE then
+		return nil, true;
+	end
+	return line, false;
+end
+
+-- Before the secure macro action runs: the line to send (out of combat - the keyboard is closed in combat).
+local function EnterPreClick(button)
+	local line, cannot;
+	if target and isChat then
+		line, cannot = ChatLine(target);
+	end
+	button.handBack = cannot;
+	button:SetAttribute("macrotext", line or "");
+end
+
+-- After it: chat closes like after Enter (the chat type sticks, as Enter makes it); a chat type no macro
+-- line can say goes back to the chat box to send with A; any other box gets its own Enter action.
+local function EnterPostClick(button)
+	local box, chat = target, isChat;
+	if not box then
+		return;
+	end
+	if chat and button.handBack then
+		Close();
+		Print("this chat sends with A on the chat box.");
+		return;
+	end
+	if chat then
+		local chatType = box:GetAttribute("chatType");
+		local sent = (button:GetAttribute("macrotext") or "") ~= "" and (box:GetText() or ""):sub(1, 1) ~= "/";
+		if sent and ChatTypeInfo and ChatTypeInfo[chatType] and ChatTypeInfo[chatType].sticky == 1 then
+			box:SetAttribute("stickyType", chatType);
+		end
+		box:SetText("");
+		Close(); -- back on the chat box, now empty...
+		local manager = GetManager();
+		if manager and box.chatFrame then
+			pcall(manager.FrameHidden, manager, box.chatFrame); -- ...and the chat closes, as after Enter
+		end
+		return;
+	end
+	local onEnter = box:GetScript("OnEnterPressed");
+	Close();
+	if onEnter then
+		onEnter(box);
+	else
+		box:ClearFocus();
+	end
+end
+
 local function CreateKey(key)
 	local special = SPECIAL_KEYS[key];
 	local units = special and special.units or 1;
-	local button = CreateFrame("Button", nil, keyboard, "UIPanelButtonTemplate");
+	local button;
+	if key == ENTER then
+		-- Blizzard's secure macro action, on release (a controller's A and a mouse click both act).
+		button = CreateFrame("Button", nil, keyboard, "SecureActionButtonTemplate, UIPanelButtonTemplate");
+		button:RegisterForClicks("AnyUp");
+		button:SetAttribute("type", "macro");
+		button:SetAttribute("useOnKeyDown", false);
+		button:SetAttribute("macrotext", "");
+		button:SetScript("PreClick", EnterPreClick);
+		button:SetScript("PostClick", EnterPostClick);
+	else
+		button = CreateFrame("Button", nil, keyboard, "UIPanelButtonTemplate");
+		button:SetScript("OnClick", Press);
+	end
 	button.width = units * KEY_WIDTH + (units - 1) * GAP;
 	button:SetSize(button.width, KEY_HEIGHT);
 	button:SetText(special and special.label or key);
 	button.key = key;
-	button:SetScript("OnClick", Press);
 	return button;
 end
 
@@ -364,7 +458,7 @@ local function CreateKeyboard()
 	end
 
 	keyboard.Prompts = { CreatePrompt(GAMEPAD_FACE_BOTTOM, "Type") };
-	table.insert(keyboard.Prompts, CreatePrompt(GAMEPAD_FACE_RIGHT, "Done", keyboard.Prompts[1].text));
+	table.insert(keyboard.Prompts, CreatePrompt(GAMEPAD_FACE_RIGHT, "Back", keyboard.Prompts[1].text));
 
 	keyboard.CloseButton:SetScript("OnClick", Close);
 	-- Controller B: go back, rather than Blizzard's gamepad UI pressing the close button.
@@ -385,7 +479,7 @@ local function CreateKeyboard()
 		Register();
 		RefreshNavigation();
 	end);
-	-- However it closes (Done, B, Escape, combat): back to the window the box belongs to, which focuses the
+	-- However it closes (Enter, B, Escape, combat): back to the window the box belongs to, which focuses the
 	-- box again - not a request for the keyboard - and the box isn't opened for again until focus moves
 	-- elsewhere or it's asked for again. An untouched chat box loses its placeholder.
 	keyboard:SetScript("OnHide", function()
