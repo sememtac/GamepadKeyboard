@@ -46,7 +46,8 @@ rather than number, and lines too long to fit with their prefix.
 
 In a box of several lines - the mail's text - Enter (the key, or holding A) starts a **new line** at the
 cursor; the Enter key and the footer say so. The preview shows the line the cursor is on ("line 2 of 3").
-B is the way out. Every other box gets Enter as its Enter.
+B is the way out. Every other box gets Enter as its Enter - which can mean "next box": Enter in the mail's
+To: moves on to Subject: (the box's own Enter), and the keyboard follows it there.
 
 ## Options
 
@@ -70,7 +71,8 @@ default is gone; `/gk reset` brings back the usual place and size. Size is also 
 
 This is the keyboard's own selection, not one of Edit Mode's systems: Forever's Edit Mode takes no addon
 frames (adding one to its list would taint it, and it lays out the action bars), so there's no Edit Mode
-settings dialog for it and the layout isn't per Edit Mode layout.
+settings dialog for it, the layout isn't per Edit Mode layout, and Edit Mode's Revert Changes doesn't undo
+it (dragging and the mouse wheel take effect at once; `/gk reset` is the undo).
 
 ## Names
 
