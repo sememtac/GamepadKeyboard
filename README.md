@@ -55,7 +55,8 @@ To: moves on to Subject: (the box's own Enter), and the keyboard follows it ther
 
 ## Options
 
-Options > AddOns > **Gamepad Keyboard** (or `/gk`):
+Options > AddOns > **Gamepad Keyboard** (or `/gk`) - checkboxes, two layout buttons, and - / + for the
+numbers; the panel's Defaults button puts them all back:
 
 | Option | Does |
 | --- | --- |
@@ -64,8 +65,8 @@ Options > AddOns > **Gamepad Keyboard** (or `/gk`):
 | Close after Enter | Enter closes the keyboard (chat: sends and closes the chat); off: it stays for the next line |
 | Capital letter to start a chat line | a chat line starts with Shift on |
 | Name suggestions | name keys for a box that looks names up (the mail's To:) |
-| Hold A for Enter | how long to hold A for Enter, 0.3 - 1.5 s |
-| Size | 60 - 150% |
+| Hold A for Enter | how long to hold A for Enter, 0.3 - 1.5 s in tenths |
+| Size | 60 - 150% in 5% steps |
 
 ## Where it goes, and its size: Edit Mode
 
@@ -167,8 +168,12 @@ not for chat. Blizzard's list (`AutoCompleteBox`) isn't touched: its update runs
 calling it from here would leave addon-written state (its parent, selection) that the chat's Enter reads.
 A picked name goes in as Blizzard's list puts it (`Ambiguate(name, "none")`, the box's command and space).
 
-Options are Blizzard's Settings API (`Settings.RegisterAddOnSetting` on the saved table, registered at
-`ADDON_LOADED` once that table is loaded; Blizzard writes defaults into it). Edit Mode is followed through
+The options are the addon's own page in Blizzard's Settings panel (`Settings.RegisterCanvasLayoutCategory`,
+at `ADDON_LOADED`), not Blizzard's list of controls: the panel keeps a list control's data (and calls its
+functions - a dropdown's choices, a slider's label) as the addon gave them, and as it hides it clears its
+search box - which redraws the page - and then saves key bindings, which only Blizzard's UI may do. With
+the addon's controls on that page, that was "blocked from an action only available to the Blizzard UI".
+A canvas page the panel only shows, and calls its refresh and defaults isolated; this one has no OnShow. Edit Mode is followed through
 `EventRegistry` (`EditMode.Enter` / `EditMode.Exit`); in it the keyboard is a preview on the HIGH layer
 (under Edit Mode's DIALOG panels) that never registers with the gamepad UI or follows typing focus. Saved
 positions are kept in UIParent's units - a frame's offsets are in its own scaled units, so they're
@@ -176,7 +181,7 @@ multiplied by its scale when kept and divided when used - so it stays put at any
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 242 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 249 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
 focus, the menu dial's button already up), and real-keyboard keys delivered as the game delivers them
@@ -199,7 +204,8 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
       way, they type into To: again.
 - [ ] Mail To:: typing a few letters shows up to four names above the keys; D-pad up and A puts one in, and
       the mail can be sent to it.
-- [ ] Options > AddOns > Gamepad Keyboard shows the seven options (Keyboard layout: Dvorak switches the letters at once); each works (Close after Enter off: chat
+- [ ] Options > AddOns > Gamepad Keyboard shows the seven options (Keyboard layout: Dvorak switches the letters at once);
+      typing in the Options search box, then backing out of Options: no "blocked" dialog; each works (Close after Enter off: chat
       stays open for the next line). The panel is usable with the controller.
 - [ ] Mail text (several lines): Enter / holding A start a new line; the preview shows "line 2 of 2".
 - [ ] Edit Mode: the keyboard shows with a blue selection, under Edit Mode's panels; dragging moves it, the

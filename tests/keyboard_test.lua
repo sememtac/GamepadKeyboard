@@ -301,46 +301,28 @@ function menuDialChat() menuDial(function() chatFrame:SetGamepadFocus() end) end
 
 for _, k in ipairs({ "PAD1", "PAD3", "PAD4", "PADLSHOULDER", "PADRSHOULDER" }) do SetOverrideBindingClick(UIParent, true, k, "Blizzard_" .. k) end
 
--- Blizzard's Settings API (Blizzard_Settings.lua, AddOnSettingMixin): an addon setting writes its default
--- into the table if the key is nil, then reads and writes that table; SetValue fires value-changed callbacks.
-local optionsPanel = { settings = {}, order = {} }
-MinimalSliderWithSteppersMixin = { Label = { Left = 1, Right = 2 } }
+-- Blizzard's Settings API. A canvas page: the addon's own frame, which the panel shows (frame:Show(), no
+-- isolation - so no OnShow) and whose OnRefresh / OnDefault it calls isolated. Blizzard's list controls are
+-- off limits: the panel keeps their data as the addon wrote it, and redraws them as it hides, right before
+-- SaveBindings (Blizzard UI only) - the "blocked from an action only available to the Blizzard UI" dialog.
+local optionsPanel = { registered = 0 }
+local function offLimits(name) return function() error(name .. ": list controls taint the Settings panel's hide (SaveBindings)") end end
 Settings = {
-	VarType = { Boolean = "boolean", String = "string", Number = "number" },
-	RegisterVerticalLayoutCategory = function(name)
+	RegisterCanvasLayoutCategory = function(frame, name)
+		optionsPanel.registered = optionsPanel.registered + 1
+		optionsPanel.frame = frame
 		optionsPanel.category = { name = name, GetID = function() return 4242 end }
 		return optionsPanel.category
 	end,
-	RegisterAddOnSetting = function(category, variable, key, tbl, varType, name, default)
-		assert(category == optionsPanel.category and type(tbl) == "table" and type(default) == varType, "RegisterAddOnSetting arguments")
-		if tbl[key] == nil then tbl[key] = default end
-		local setting = { variable = variable, key = key, tbl = tbl, name = name, default = default, callbacks = {} }
-		function setting:GetValue() return self.tbl[self.key] end
-		function setting:SetValue(v) self.tbl[self.key] = v; for _, cb in ipairs(self.callbacks) do cb(self, v) end end
-		function setting:SetValueChangedCallback(cb) table.insert(self.callbacks, cb) end
-		optionsPanel.settings[key] = setting
-		optionsPanel.order[#optionsPanel.order + 1] = key
-		return setting
-	end,
-	CreateCheckbox = function(category, setting, tooltip) setting.control, setting.tooltip = "checkbox", tooltip end,
-	CreateSlider = function(category, setting, options, tooltip) setting.control, setting.options, setting.tooltip = "slider", options, tooltip end,
-	CreateDropdown = function(category, setting, options, tooltip)
-		assert(type(options) == "function", "a dropdown's options are a function giving its choices")
-		setting.control, setting.options, setting.tooltip = "dropdown", options, tooltip
-	end,
-	CreateControlTextContainer = function()
-		local container = { data = {} }
-		function container:Add(value, label) table.insert(self.data, { value = value, label = label, text = label }) end
-		function container:GetData() return self.data end
-		return container
-	end,
-	CreateSliderOptions = function(minValue, maxValue, rate)
-		return { minValue = minValue, maxValue = maxValue, steps = (maxValue - minValue) / rate,
-			SetLabelFormatter = function(self, labelType, format) self.labelType, self.format = labelType, format end }
-	end,
 	RegisterAddOnCategory = function(category) optionsPanel.addOnCategory = category end,
 	OpenToCategory = function(id) optionsPanel.opened = id end,
+	RegisterVerticalLayoutCategory = offLimits("RegisterVerticalLayoutCategory"),
+	RegisterAddOnSetting = offLimits("RegisterAddOnSetting"),
+	CreateCheckbox = offLimits("CreateCheckbox"),
+	CreateSlider = offLimits("CreateSlider"),
+	CreateDropdown = offLimits("CreateDropdown"),
 }
+GameTooltip = { SetOwner = function() end, SetText = function() end, Show = function() end, Hide = function() end }
 
 -- EventRegistry (CallbackRegistryMixin): one callback per owner and event, an owner required here.
 EventRegistry = { callbacks = {} }
@@ -363,22 +345,56 @@ local savedTable = GamepadKeyboardDB
 W.fireEvent("ADDON_LOADED", "SomeOtherAddOn")
 check(optionsPanel.category == nil, "(another addon loading: nothing)")
 W.fireEvent("ADDON_LOADED", "GamepadKeyboard")
-local S = optionsPanel.settings
-check(optionsPanel.addOnCategory and optionsPanel.addOnCategory.name == "Gamepad Keyboard"
-	and table.concat(optionsPanel.order, ",") == "autoOpen,layout,closeOnEnter,chatCapital,names,holdTime,scale",
-	"Options > AddOns > Gamepad Keyboard: open with the controller, layout, close after Enter, capital, names, hold time, size")
-check(S.autoOpen.control == "checkbox" and S.closeOnEnter.control == "checkbox" and S.holdTime.control == "slider" and S.scale.control == "slider"
-	and S.holdTime.options.minValue == 0.3 and S.holdTime.options.maxValue == 1.5 and S.holdTime.options.format(0.5) == "0.5 s"
-	and S.scale.options.minValue == 0.6 and S.scale.options.maxValue == 1.5 and S.scale.options.format(1.2) == "120%",
-	"checkboxes and sliders, with their ranges and labels")
-check(S.closeOnEnter.tbl == savedTable and savedTable.closeOnEnter == true and savedTable.holdTime == 0.5 and savedTable.scale == 1,
-	"on the loaded saved table, defaults filled in")
+-- The options page, and S: each option as the player changes it there (a click on its checkbox or layout
+-- button, steps of the - / + buttons).
+local page = optionsPanel.frame
+local DEFAULT_VALUES = { autoOpen = true, closeOnEnter = true, chatCapital = true, names = true, holdTime = 0.5, scale = 1, layout = "qwerty" }
+local function optionValue(key) local v = GamepadKeyboardDB[key]; if v == nil then return DEFAULT_VALUES[key] end; return v end
+local S = setmetatable({}, { __index = function(_, key)
+	return {
+		GetValue = function() return optionValue(key) end,
+		SetValue = function(_, value)
+			if page.Checks[key] then
+				if (optionValue(key) and true or false) ~= value then page.Checks[key]:Click() end
+			elseif key == "layout" then
+				page.Layouts[value]:Click()
+			else
+				local stepper, step = page.Steppers[key], key == "scale" and 0.05 or 0.1
+				for _ = 1, 40 do
+					local diff = value - optionValue(key)
+					if math.abs(diff) < step / 2 then break end
+					(diff > 0 and stepper.Plus or stepper.Minus):Click()
+				end
+				assert(math.abs(optionValue(key) - value) < 1e-9, "a value the steppers can't reach: " .. tostring(value))
+			end
+		end,
+	}
+end })
+check(optionsPanel.addOnCategory and optionsPanel.addOnCategory.name == "Gamepad Keyboard" and optionsPanel.registered == 1 and page,
+	"Options > AddOns > Gamepad Keyboard: its own page")
+check(page.Checks.autoOpen and page.Checks.closeOnEnter and page.Checks.chatCapital and page.Checks.names
+	and page.Layouts.qwerty.text == "QWERTY" and page.Layouts.dvorak.text == "Dvorak" and page.Steppers.holdTime and page.Steppers.scale,
+	"...open with the controller, keyboard layout (QWERTY / Dvorak), close after Enter, capital, names, hold time, size")
+check(page.scripts.OnShow == nil and page.OnRefresh and page.OnDefault, "...no OnShow (the panel shows it unguarded); refresh and defaults for the panel")
+check(page.Checks.autoOpen.checked and page.Checks.closeOnEnter.checked and page.Layouts.qwerty.locked and not page.Layouts.dvorak.locked
+	and page.Steppers.holdTime.Value.text == "0.5 s" and page.Steppers.scale.Value.text == "100%", "...showing the defaults")
+check(next(savedTable) == nil, "...nothing written to the saved table until something's changed")
 W.fireEvent("ADDON_LOADED", "GamepadKeyboard")
-check(#optionsPanel.order == 7, "(registered once)")
-local layoutChoices = S.layout.options()
-check(S.layout.control == "dropdown" and #layoutChoices == 2 and layoutChoices[1].value == "qwerty" and layoutChoices[1].label == "QWERTY"
-	and layoutChoices[2].value == "dvorak" and layoutChoices[2].label == "Dvorak" and savedTable.layout == "qwerty",
-	"Keyboard layout: a dropdown, QWERTY (the default) or Dvorak")
+check(optionsPanel.registered == 1, "(registered once)")
+page.Steppers.holdTime.Plus:Click(); page.Steppers.holdTime.Plus:Click()
+check(savedTable.holdTime == 0.7 and page.Steppers.holdTime.Value.text == "0.7 s", "the hold time's + : in tenths of a second, shown")
+for _ = 1, 20 do page.Steppers.holdTime.Minus:Click() end
+check(savedTable.holdTime == 0.3, "...not under 0.3 s")
+savedTable.holdTime = 0.55; page.Steppers.holdTime.Plus:Click()
+check(savedTable.holdTime == 0.7, "...from a time between steps: the nearest step, then one more")
+page.Checks.names:Click()
+check(savedTable.names == false and not page.Checks.names.checked, "a checkbox: off")
+page.OnDefault(page)
+check(savedTable.holdTime == 0.5 and savedTable.names == true and page.Checks.names.checked and page.Steppers.holdTime.Value.text == "0.5 s",
+	"Defaults (the panel's button): all back")
+savedTable.closeOnEnter = false; page.OnRefresh(page)
+check(not page.Checks.closeOnEnter.checked, "Refresh: the page shows what's saved")
+savedTable.closeOnEnter = nil; page.OnRefresh(page)
 poll(); poll()
 check(W.focused == nil, "loading takes no typing focus (a text box of ours shown with auto-focus would keep every key)")
 
@@ -1144,7 +1160,7 @@ overlay.scripts.OnMouseWheel(overlay, 1); overlay.scripts.OnMouseWheel(overlay, 
 check(S.scale:GetValue() == 1.1 and kb.scale == 1.1 and kb.point[4] == 40 / 1.1, "the mouse wheel over it: bigger, in steps, the same spot")
 for _ = 1, 3 do overlay.scripts.OnMouseWheel(overlay, -1) end
 check(S.scale:GetValue() == 0.95, "...smaller in the same steps, exact sizes")
-S.scale:SetValue(0.83); overlay.scripts.OnMouseWheel(overlay, 1)
+GamepadKeyboardDB.scale = 0.83; overlay.scripts.OnMouseWheel(overlay, 1) -- (a size between steps, as saved)
 check(S.scale:GetValue() == 0.9, "...from a size between steps: the nearest step, then one more")
 for _ = 1, 20 do overlay.scripts.OnMouseWheel(overlay, -1) end
 check(S.scale:GetValue() == 0.6, "...not smaller than the smallest size")

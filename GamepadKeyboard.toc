@@ -2,7 +2,7 @@
 ## Title: Gamepad Keyboard
 ## Notes: An on-screen keyboard for typing with a controller, in the game's controller UI.
 ## Author: Catmemes
-## Version: 0.11
+## Version: 0.11.1
 ## SavedVariables: GamepadKeyboardDB
 
 GamepadKeyboard.lua
