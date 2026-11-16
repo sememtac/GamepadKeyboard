@@ -97,6 +97,9 @@ function Frame:GetFrameStrata() return self.strata or "MEDIUM" end
 function Frame:SetFrameLevel(v) self.level = v end
 function Frame:GetFrameLevel() return self.level or 1 end
 function Frame:EnableMouse(v) self.mouse = v end
+function Frame:EnableMouseWheel(v) self.mouseWheel = v end
+function Frame:SetScale(v) self.scale = v end
+function Frame:GetScale() return self.scale or 1 end
 function Frame:EnableKeyboard(v) self.keyboardEnabled = v end
 -- Restricted in Forever (HasRestrictions; in combat at least). Treated as refused to addon code, the worst
 -- case: a frame it lets hear keys keeps every key (off until set). Only the addon calls it here.

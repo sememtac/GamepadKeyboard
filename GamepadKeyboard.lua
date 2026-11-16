@@ -34,6 +34,8 @@
 -- listening frame keeps every key it isn't allowed to pass on, and SetPropagateKeyboardInput is restricted
 -- (in combat at least).
 --
+-- Options: Options > AddOns > Gamepad Keyboard (or /gk), through Blizzard's Settings API.
+--
 -- In combat Blizzard's gamepad UI takes no addon windows, so the keyboard doesn't open (a real keyboard
 -- types as always), and an open one closes when combat starts; the text stays in the box.
 
@@ -837,6 +839,14 @@ local function CreatePrompt(key, label, anchorTo, isHold)
 	return { icon = icon, text = caption };
 end
 
+-- Where it was dragged to, in UIParent's units (see Position).
+local function SavePosition()
+	keyboard:StopMovingOrSizing();
+	local point, _, relativePoint, x, y = keyboard:GetPoint();
+	local scale = keyboard:GetScale();
+	DB().position = { point = point, relativePoint = relativePoint, x = x * scale, y = y * scale };
+end
+
 local function CreateKeyboard()
 	keyboard = CreateFrame("Frame", "GamepadKeyboardFrame", UIParent, "BasicFrameTemplateWithInset, FocusFramesInterfaceTemplate");
 	keyboard:SetSize(11 * KEY_WIDTH + 10 * GAP + 28, 260);
@@ -847,11 +857,7 @@ local function CreateKeyboard()
 	keyboard:SetMovable(true);
 	keyboard:RegisterForDrag("LeftButton");
 	keyboard:SetScript("OnDragStart", keyboard.StartMoving);
-	keyboard:SetScript("OnDragStop", function(self)
-		self:StopMovingOrSizing();
-		local point, _, relativePoint, x, y = self:GetPoint();
-		DB().position = { point = point, relativePoint = relativePoint, x = x, y = y };
-	end);
+	keyboard:SetScript("OnDragStop", SavePosition);
 	keyboard:Hide();
 	tinsert(UISpecialFrames, "GamepadKeyboardFrame");
 
@@ -956,13 +962,21 @@ local function CreateKeyboard()
 	end);
 end
 
--- Where it was dragged to; else for chat beside the chat window, not over it; else above the text box if
--- it's in the lower half of the screen, below it if not.
+-- The size first, then where it was put (kept in UIParent's units: a frame's offsets are in its own scaled
+-- units, so they're multiplied by its scale to keep and divided to use - the same spot at any size); else for
+-- chat beside the chat window, not over it; else above the text box if it's in the lower half of the
+-- screen, below it if not; with no box (Edit Mode), the middle of the screen.
 local function Position(box)
+	local scale = Setting("scale");
+	keyboard:SetScale(scale);
 	keyboard:ClearAllPoints();
 	local saved = DB().position;
 	if saved then
-		keyboard:SetPoint(saved.point, UIParent, saved.relativePoint, saved.x, saved.y);
+		keyboard:SetPoint(saved.point, UIParent, saved.relativePoint, saved.x / scale, saved.y / scale);
+		return;
+	end
+	if not box then
+		keyboard:SetPoint("CENTER");
 		return;
 	end
 	if box.chatFrame then
@@ -1113,6 +1127,63 @@ for index = 1, NUM_CHAT_WINDOWS or 10 do
 	end
 end
 
+-------------------------------------------------------------------------------
+-- Options: Blizzard's Settings panel (Options > AddOns), on the saved table once it's loaded
+-------------------------------------------------------------------------------
+
+local options = {}; -- key -> Blizzard's setting
+local optionsCategory;
+
+-- A change of size shows at once if the keyboard is up.
+local function ApplySize()
+	if keyboard and keyboard:IsShown() and not InCombatLockdown() then
+		Position(target);
+	end
+end
+
+local function RegisterOptions()
+	if not (Settings and Settings.RegisterVerticalLayoutCategory) then
+		return;
+	end
+	local category = Settings.RegisterVerticalLayoutCategory("Gamepad Keyboard");
+	local function Add(key, name, tooltip, sliderOptions)
+		local setting = Settings.RegisterAddOnSetting(category, "GamepadKeyboard_" .. key, key, DB(), type(DEFAULTS[key]), name, DEFAULTS[key]);
+		if sliderOptions then
+			Settings.CreateSlider(category, setting, sliderOptions, tooltip);
+		else
+			Settings.CreateCheckbox(category, setting, tooltip);
+		end
+		options[key] = setting;
+		return setting;
+	end
+	local function Slider(minValue, maxValue, step, format)
+		local sliderOptions = Settings.CreateSliderOptions(minValue, maxValue, step);
+		sliderOptions:SetLabelFormatter(MinimalSliderWithSteppersMixin.Label.Right, format);
+		return sliderOptions;
+	end
+	Add("autoOpen", "Open with the controller",
+		"Opens when you go to a text box with the controller: A on it, or Chat on the menu dial. A real keyboard or the mouse never opens it.");
+	Add("closeOnEnter", "Close after Enter",
+		"Enter sends a chat line and closes the chat, or runs a text box's Enter and closes the keyboard. Off: the keyboard stays open for the next line.");
+	Add("chatCapital", "Capital letter to start a chat line", "A chat line starts with Shift on.");
+	Add("names", "Name suggestions", "Name keys above the keyboard for a text box that looks names up, like the mail's To:.");
+	Add("holdTime", "Hold A for Enter", "How long to hold A for Enter (or a new line in a box of several lines).",
+		Slider(0.3, 1.5, 0.1, function(value) return ("%.1f s"):format(value); end));
+	Add("scale", "Size", "The keyboard's size. In Edit Mode, the mouse wheel over it changes it too.",
+		Slider(0.6, 1.5, 0.05, function(value) return ("%d%%"):format(value * 100 + 0.5); end)):SetValueChangedCallback(ApplySize);
+	Settings.RegisterAddOnCategory(category);
+	optionsCategory = category;
+end
+
+-- A setting changed from here (/gk, Edit Mode): through Blizzard's setting, so its panel shows it.
+local function SetOption(key, value)
+	if options[key] then
+		options[key]:SetValue(value);
+	else
+		DB()[key] = value;
+	end
+end
+
 -- One check per frame: what the player is pressing, the chat box taken back, and the keyboard opens when
 -- typing focus moves to a text box.
 local lastFocus;
@@ -1157,8 +1228,14 @@ end);
 watcher:RegisterEvent("PLAYER_REGEN_DISABLED");
 watcher:RegisterEvent("PLAYER_REGEN_ENABLED");
 watcher:RegisterEvent("GLOBAL_MOUSE_DOWN");
-watcher:SetScript("OnEvent", function(_, event)
-	if event == "GLOBAL_MOUSE_DOWN" then
+watcher:RegisterEvent("ADDON_LOADED");
+watcher:SetScript("OnEvent", function(_, event, ...)
+	if event == "ADDON_LOADED" then
+		if ... == ADDON_NAME then
+			watcher:UnregisterEvent("ADDON_LOADED");
+			RegisterOptions(); -- the saved table is the loaded one now
+		end
+	elseif event == "GLOBAL_MOUSE_DOWN" then
 		lastInput = "mouse";
 	elseif event == "PLAYER_REGEN_DISABLED" then
 		Close(); -- the text stays in the box
@@ -1200,7 +1277,8 @@ SlashCmdList.GAMEPADKEYBOARD = function(message)
 	message = strtrim(message or ""):lower();
 	if message == "reset" then
 		DB().position = nil;
-		Print("back to its usual place.");
+		SetOption("scale", DEFAULTS.scale);
+		Print("back to its usual place and size.");
 	elseif message == "names" then
 		if lastNamesBox then
 			DescribeNames(lastNamesBox);
@@ -1208,10 +1286,12 @@ SlashCmdList.GAMEPADKEYBOARD = function(message)
 			Print("type in a text box with the keyboard first (the mail's To:, say), then /gk names.");
 		end
 	elseif message == "on" or message == "off" then
-		DB().autoOpen = message == "on";
+		SetOption("autoOpen", message == "on");
 		Print(message == "on" and "opens when a text box gets focus with the controller."
 			or "off - type with a keyboard; /gk on turns it back on.");
+	elseif optionsCategory and not InCombatLockdown() then
+		Settings.OpenToCategory(optionsCategory:GetID());
 	else
-		Print(("%s. /gk on | off, /gk reset puts it back in its usual place."):format(Setting("autoOpen") and "On" or "Off"));
+		Print(("%s. /gk on | off, /gk reset puts it back in its usual place and size."):format(Setting("autoOpen") and "On" or "Off"));
 	end
 end;

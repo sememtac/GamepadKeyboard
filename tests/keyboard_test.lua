@@ -289,9 +289,59 @@ function menuDialChat() menuDial(function() chatFrame:SetGamepadFocus() end) end
 
 for _, k in ipairs({ "PAD1", "PAD3", "PAD4", "PADLSHOULDER", "PADRSHOULDER" }) do SetOverrideBindingClick(UIParent, true, k, "Blizzard_" .. k) end
 
+-- Blizzard's Settings API (Blizzard_Settings.lua, AddOnSettingMixin): an addon setting writes its default
+-- into the table if the key is nil, then reads and writes that table; SetValue fires value-changed callbacks.
+local optionsPanel = { settings = {}, order = {} }
+MinimalSliderWithSteppersMixin = { Label = { Left = 1, Right = 2 } }
+Settings = {
+	VarType = { Boolean = "boolean", String = "string", Number = "number" },
+	RegisterVerticalLayoutCategory = function(name)
+		optionsPanel.category = { name = name, GetID = function() return 4242 end }
+		return optionsPanel.category
+	end,
+	RegisterAddOnSetting = function(category, variable, key, tbl, varType, name, default)
+		assert(category == optionsPanel.category and type(tbl) == "table" and type(default) == varType, "RegisterAddOnSetting arguments")
+		if tbl[key] == nil then tbl[key] = default end
+		local setting = { variable = variable, key = key, tbl = tbl, name = name, default = default, callbacks = {} }
+		function setting:GetValue() return self.tbl[self.key] end
+		function setting:SetValue(v) self.tbl[self.key] = v; for _, cb in ipairs(self.callbacks) do cb(self, v) end end
+		function setting:SetValueChangedCallback(cb) table.insert(self.callbacks, cb) end
+		optionsPanel.settings[key] = setting
+		optionsPanel.order[#optionsPanel.order + 1] = key
+		return setting
+	end,
+	CreateCheckbox = function(category, setting, tooltip) setting.control, setting.tooltip = "checkbox", tooltip end,
+	CreateSlider = function(category, setting, options, tooltip) setting.control, setting.options, setting.tooltip = "slider", options, tooltip end,
+	CreateSliderOptions = function(minValue, maxValue, rate)
+		return { minValue = minValue, maxValue = maxValue, steps = (maxValue - minValue) / rate,
+			SetLabelFormatter = function(self, labelType, format) self.labelType, self.format = labelType, format end }
+	end,
+	RegisterAddOnCategory = function(category) optionsPanel.addOnCategory = category end,
+	OpenToCategory = function(id) optionsPanel.opened = id end,
+}
+
 -- ---- load ---------------------------------------------------------------------------------------------
 H.loadAddon({})
 check(SlashCmdList.GAMEPADKEYBOARD ~= nil and SLASH_GAMEPADKEYBOARD1 == "/gk", "/gk")
+-- The game loads the saved table after the addon's files, then fires ADDON_LOADED.
+check(optionsPanel.category == nil, "(no options before the saved table is loaded)")
+GamepadKeyboardDB = { position = nil }
+local savedTable = GamepadKeyboardDB
+W.fireEvent("ADDON_LOADED", "SomeOtherAddOn")
+check(optionsPanel.category == nil, "(another addon loading: nothing)")
+W.fireEvent("ADDON_LOADED", "GamepadKeyboard")
+local S = optionsPanel.settings
+check(optionsPanel.addOnCategory and optionsPanel.addOnCategory.name == "Gamepad Keyboard"
+	and table.concat(optionsPanel.order, ",") == "autoOpen,closeOnEnter,chatCapital,names,holdTime,scale",
+	"Options > AddOns > Gamepad Keyboard: open with the controller, close after Enter, capital, names, hold time, size")
+check(S.autoOpen.control == "checkbox" and S.closeOnEnter.control == "checkbox" and S.holdTime.control == "slider" and S.scale.control == "slider"
+	and S.holdTime.options.minValue == 0.3 and S.holdTime.options.maxValue == 1.5 and S.holdTime.options.format(0.5) == "0.5 s"
+	and S.scale.options.minValue == 0.6 and S.scale.options.maxValue == 1.5 and S.scale.options.format(1.2) == "120%",
+	"checkboxes and sliders, with their ranges and labels")
+check(S.closeOnEnter.tbl == savedTable and savedTable.closeOnEnter == true and savedTable.holdTime == 0.5 and savedTable.scale == 1,
+	"on the loaded saved table, defaults filled in")
+W.fireEvent("ADDON_LOADED", "GamepadKeyboard")
+check(#optionsPanel.order == 6, "(registered once)")
 poll(); poll()
 check(W.focused == nil, "loading takes no typing focus (a text box of ours shown with auto-focus would keep every key)")
 
@@ -338,7 +388,7 @@ check(manager.focusedFrame == chatFrame and chatBox:HasFocus() and chatBox:GetTe
 poll(); poll()
 check(not kb:IsShown(), "it doesn't open again for the box it went back to")
 check(#poisoned == 0, "the keyboard never called a chat send function")
--- Back on the chat box, choosing Chat on the menu dial again (the chat is already the focused panel, so
+-- Back on the chat box, choosing Chat on the menu dial again (the chat is already the focused optionsPanel, so
 -- nothing changes focus): the keyboard comes back.
 menuDialChat(); poll()
 check(kb:IsShown() and chatBox:GetText() == "Hi ther", "Chat chosen again while back on the chat box: the keyboard comes back, with the text")
@@ -533,7 +583,7 @@ openChat("SAY"); poll(); poll()
 check(not key("ENTER").locked, "closed while A is held: not a hold the next time it opens")
 kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 -- A name box: holding A is its own Enter.
-local holdBox = W.CreateFrame("EditBox", nil, panel or UIParent, "InputBoxTemplate")
+local holdBox = W.CreateFrame("EditBox", nil, optionsPanel or UIParent, "InputBoxTemplate")
 holdBox.center = { 500, 300 }
 local holdEntered = 0
 holdBox.scripts.OnEnterPressed = function(self) holdEntered = holdEntered + 1; self:ClearFocus() end
@@ -927,6 +977,25 @@ openChat("SAY"); poll()
 check(GamepadKeyboardDB.position == nil and kb.point[2] == chatFrame, "/gk reset: back beside the chat window")
 kb:Hide(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 
+-- ---- size --------------------------------------------------------------------------------------------------------
+openChat("SAY"); poll()
+check(kb.scale == 1, "(normal size)")
+S.scale:SetValue(1.25)
+check(kb.scale == 1.25, "Size: the keyboard changes size at once")
+kb.scripts.OnDragStart(kb)
+kb:ClearAllPoints(); kb:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 200, 80) -- where the game leaves it after a drag, in its own scaled units
+kb.scripts.OnDragStop(kb)
+check(GamepadKeyboardDB.position.x == 250 and GamepadKeyboardDB.position.y == 100, "dragged at 125%: kept in screen units")
+S.scale:SetValue(1)
+check(kb.point[4] == 250 and kb.point[5] == 100 and kb.scale == 1, "the same spot at 100%")
+S.scale:SetValue(0.8)
+check(kb.point[4] == 312.5 and kb.point[5] == 125, "...and at 80% (offsets in its own units: 250 / 0.8)")
+S.scale:SetValue(1.25)
+SlashCmdList.GAMEPADKEYBOARD("reset")
+check(GamepadKeyboardDB.position == nil and S.scale:GetValue() == 1 and kb.scale == 1 and kb.point[2] == chatFrame,
+	"/gk reset: usual place and size, at once")
+kb:Hide(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+
 -- ---- the D-pad ---------------------------------------------------------------------------------------------------
 padA(function() nameBox:SetFocus() end)
 local function jump(k, dir) return overrides[key(k)] and overrides[key(k)][dir] end
@@ -952,8 +1021,11 @@ check(not kb:IsShown(), "a forbidden box (Blizzard's store and such): doesn't op
 secret:ClearFocus(); poll()
 SlashCmdList.GAMEPADKEYBOARD("off")
 openChat("SAY"); poll()
-check(not kb:IsShown() and GamepadKeyboardDB.autoOpen == false, "/gk off: doesn't open")
+check(not kb:IsShown() and S.autoOpen:GetValue() == false, "/gk off: doesn't open (and the options show it off)")
 SlashCmdList.GAMEPADKEYBOARD("on")
+check(S.autoOpen:GetValue() == true, "/gk on: on again")
+SlashCmdList.GAMEPADKEYBOARD("")
+check(optionsPanel.opened == 4242, "/gk: opens its options")
 chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 
 -- ---- combat starting while typing ----------------------------------------------------------------------------------
