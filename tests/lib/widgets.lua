@@ -110,7 +110,11 @@ function Frame:StopMovingOrSizing() self.moving = false end
 function Frame:SetClampedToScreen(v) self.clamped = v end
 function Frame:SetToplevel(v) self.toplevel = v end
 function Frame:GetName() return self.name end
-function Frame:GetCenter() if self.center then return self.center[1], self.center[2] end end
+-- A set centre, else from a point at an offset in its parent (the keys: TOPLEFT, x, y).
+function Frame:GetCenter()
+	if self.center then return self.center[1], self.center[2] end
+	if self.point and type(self.point[2]) == "number" then return self.point[2] + (self.width or 0) / 2, -self.point[3] end
+end
 function Frame:GetEffectiveScale() return self.scale or 1 end
 function Frame:GetID() return self.id or 0 end
 function Frame:SetID(id) self.id = id end

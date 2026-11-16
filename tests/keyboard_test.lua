@@ -7,7 +7,7 @@ local W = dofile(lib .. "widgets.lua")
 local check = H.check
 
 -- ---- a small game world -------------------------------------------------------------------------------
-local world = { combat = false, printed = {} }
+local world = { combat = false, printed = {}, party = false, raid = false, instance = false, guild = false }
 W.install({ inCombat = function() return world.combat end })
 function InCombatLockdown() return world.combat end
 function print(s) world.printed[#world.printed + 1] = s end
@@ -26,6 +26,14 @@ function hooksecurefunc(t, k, fn)
 	t[k] = function(...) local r = { orig(...) }; fn(...); return unpack(r) end
 end
 NUM_CHAT_WINDOWS = 1
+LE_PARTY_CATEGORY_HOME, LE_PARTY_CATEGORY_INSTANCE = 1, 2
+function IsInGroup(category)
+	if category == LE_PARTY_CATEGORY_INSTANCE then return world.instance end
+	return world.party or world.raid
+end
+function IsInRaid() return world.raid end
+function IsInGuild() return world.guild end
+local lastTell, lastTellType -- whoever whispered last
 local function poll() W.update(0.016) end
 local held = {} -- keys and controller buttons held down
 function IsKeyDown(k) return held[k] == true end
@@ -91,10 +99,22 @@ chatBox.scripts.OnEditFocusLost = function(self)
 		self.attrs.chatType, self.attrs.tellTarget, self.deactivated = self.attrs.stickyType, nil, true
 	end
 end
--- OnTextChanged -> ParseText(0): "/p " switches the chat type and leaves the rest, as when typing.
+-- OnTextChanged -> ParseText(0) -> HandleChatType / ProcessChatType, as when typing: a chat command and a
+-- space switch the chat type and leave the rest; /r a whisper to whoever whispered last (nothing if nobody).
+local CHAT_COMMANDS = { ["/S"] = "SAY", ["/P"] = "PARTY", ["/RA"] = "RAID", ["/I"] = "INSTANCE_CHAT", ["/G"] = "GUILD" }
 chatBox.scripts.OnTextChanged = function(self)
-	local rest = self.text:match("^/p%s(.*)$")
-	if rest then self.attrs.chatType, self.text = "PARTY", rest end
+	local text = self.text
+	if text:sub(1, 1) ~= "/" or not text:find("%s") then return end
+	local command = text:match("^(/[^%s]+)")
+	local msg = text:sub(#command + 2):match("^%s*(.*)$")
+	command = command:upper()
+	if CHAT_COMMANDS[command] then
+		self.attrs.chatType = CHAT_COMMANDS[command]
+		self:SetText(msg)
+	elseif command == "/R" and lastTell then
+		self.attrs.chatType, self.attrs.tellTarget = lastTellType, lastTell
+		self:SetText(msg)
+	end
 end
 chatFrame.editBox = chatBox
 function chatFrame:FocusGamepad() chatBox:SetFocus() end
@@ -109,7 +129,9 @@ ChatTypeInfo = { SAY = { sticky = 1 }, PARTY = { sticky = 1 }, CHANNEL = { stick
 local poisoned = {}
 local function poison(name) return function() poisoned[#poisoned + 1] = name; error(name .. " must not be called by the keyboard") end end
 for _, name in ipairs({ "SendMessage", "SendText", "ClearChat", "Deactivate", "ParseText" }) do chatBox[name] = poison("editBox:" .. name) end
-ChatFrameUtil = setmetatable({}, { __index = function(_, k) return poison("ChatFrameUtil." .. k) end })
+-- (GetLastTellTarget only reads.)
+ChatFrameUtil = setmetatable({ GetLastTellTarget = function() return lastTell, lastTellType end },
+	{ __index = function(_, k) return poison("ChatFrameUtil." .. k) end })
 C_ChatInfo = { SendChatMessage = poison("C_ChatInfo.SendChatMessage") }
 
 -- A player's A on a key (SmartNavigation clicks it) or a mouse click.
@@ -308,6 +330,73 @@ keyboardKey("ESCAPE")
 check(not kb:IsShown() and manager.focusedFrame == chatFrame and chatBox:GetText() == "Ok!", "closed by Escape on a real keyboard: same as B")
 chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 
+-- ---- the chat key ------------------------------------------------------------------------------------------------
+openChat("SAY"); poll()
+local chatKey = key("CHAT")
+check(chatKey and chatKey.text == "Say", "chat: a chat key showing the chat type")
+type("hi")
+playerClick(chatKey)
+check(chatBox.attrs.chatType == "SAY" and chatBox:GetText() == "Hi" and chatKey.text == "Say",
+	"no group, no guild, nobody to reply to: Say is all there is")
+world.party, world.guild = true, true
+lastTell, lastTellType = "Bob-Realm", "WHISPER"
+playerClick(chatKey)
+check(chatBox.attrs.chatType == "PARTY" and chatBox:GetText() == "Hi" and chatKey.text == "Party" and kb.Preview.text == "Hi_",
+	"in a party: Party next, the text kept")
+playerClick(chatKey)
+check(chatBox.attrs.chatType == "GUILD" and chatKey.text == "Guild" and chatBox:GetText() == "Hi", "...then Guild")
+playerClick(chatKey)
+check(chatBox.attrs.chatType == "WHISPER" and chatBox.attrs.tellTarget == "Bob-Realm" and chatKey.text == "To Bob" and chatBox:GetText() == "Hi",
+	"...then a reply to whoever whispered last")
+playerClick(chatKey)
+check(chatBox.attrs.chatType == "SAY" and chatKey.text == "Say" and chatBox:GetText() == "Hi", "...and round to Say")
+playerClick(chatKey)
+playerClick(key("ENTER"))
+check(macros[#macros] == "/p Hi" and chatBox.attrs.stickyType == "PARTY", "Enter sends to the chat type picked")
+poll()
+world.raid, world.instance = true, true
+openChat("SAY"); poll()
+playerClick(key("CHAT")); playerClick(key("CHAT"))
+check(chatBox.attrs.chatType == "RAID" and key("CHAT").text == "Raid", "in a raid: Party, then Raid")
+playerClick(key("CHAT"))
+check(chatBox.attrs.chatType == "INSTANCE_CHAT" and key("CHAT").text == "Instance", "...then Instance (an instance group)")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+world.raid, world.instance = false, false
+openChat("SAY"); poll()
+playerClick(key("CHAT"))
+check(chatBox.attrs.chatType == "PARTY" and chatBox:GetText() == "" and kb.Preview.text == "_" and key("SHIFT").locked,
+	"with nothing typed yet: switched, still nothing typed, Shift still on")
+type("go")
+playerClick(key("ENTER"))
+check(macros[#macros] == "/p Go", "...and what's typed then goes there")
+poll()
+openChat("SAY"); poll()
+playerClick(key("SYMBOLS"))
+check(key("CHAT") ~= nil and key("CHAT").text == "Say", "the symbols page has it too")
+playerClick(key("/")); playerClick(key("LETTERS")); type("g ")
+check(chatBox.attrs.chatType == "GUILD" and key("CHAT").text == "Guild", "typing /g and a space: the chat key follows")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+openChat("WHISPER", "Alice"); poll()
+check(key("CHAT").text == "To Alice", "a whisper shows who to")
+playerClick(key("CHAT"))
+check(chatBox.attrs.chatType == "SAY", "...and a whisper to someone other than the last one goes on to Say")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+openChat("WHISPER", "Bob-Realm"); poll()
+playerClick(key("CHAT"))
+check(chatBox.attrs.chatType == "SAY", "the reply already picked: on to Say")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+openChat("WHISPER", "Christopherson"); poll()
+check(key("CHAT").text == "To Christop..", "a long name is cut to fit")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+openChat("CHANNEL", nil, 2); poll()
+check(key("CHAT").text == "/2", "a channel shows its number")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+openChat("BN_WHISPER", "|Kq1-2|k"); poll()
+check(key("CHAT").text == "To |Kq1-2|k", "a Battle.net name is kept whole (the game shows it as the name)")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+world.party, world.guild = false, false
+lastTell, lastTellType = nil, nil
+
 -- ---- any other text box: a window with a name box ----------------------------------------------------------------
 local panel = W.CreateFrame("Frame", "SomePanel", UIParent)
 local nameBox = W.CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
@@ -321,6 +410,9 @@ padA(function() nameBox:SetFocus() end) -- A on the name box
 check(kb:IsShown() and manager.popupReturnFrames[kb] == panel, "a name box in a window: the keyboard opens over that window")
 check(kb.point and kb.point[1] == "TOP" and kb.point[2] == nameBox, "below the box (it's in the upper half of the screen)")
 check(not key("SHIFT").locked and nameBox:GetText() == "Tot", "no Shift, and it starts from the box's text")
+local symbolsKey, enterKey = key("SYMBOLS"), key("ENTER")
+check(key("CHAT") == nil and math.abs(symbolsKey.point[2] - (kb.width - enterKey.point[2] - enterKey.width)) < 0.01,
+	"no chat key outside chat, and the bottom row centred without it")
 type("ems"); type("x")
 check(nameBox:GetText() == "Totem", "keys type into the box, up to its letter limit")
 kb:SmartNavigationCloseHandler()
@@ -422,9 +514,6 @@ check(GamepadKeyboardDB.position == nil and kb.point[2] == chatFrame, "/gk reset
 kb:Hide(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 
 -- ---- the D-pad ---------------------------------------------------------------------------------------------------
-for _, f in ipairs(W.frames) do
-	if f.parent == kb and f.key and f.point then f.center = { f.point[2] + f.width / 2, -f.point[3] } end
-end
 padA(function() nameBox:SetFocus() end)
 local function jump(k, dir) return overrides[key(k)] and overrides[key(k)][dir] end
 check(jump("q", "right") == key("w") and jump("p", "right") == true and jump("q", "left") == true, "left / right along a row, stopping at its ends")

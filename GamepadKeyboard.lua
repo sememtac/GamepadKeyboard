@@ -14,6 +14,10 @@
 -- controller off the chat box, which would close an empty box and reset its chat type (a whisper target,
 -- say); a single space put in first keeps it open. Enter in any other box runs that box's own Enter action.
 --
+-- For chat, a chat key steps through the chat types there are to use (Say, Party, Raid, Instance, Guild,
+-- a reply to the last whisper). It switches the way typing does: it puts the type's slash command before
+-- the text, and the chat box's own parsing switches the chat and keeps the text.
+--
 -- Whichever the player is using has the text box. The keyboard opens only when the controller asked for it
 -- (A on a text box, Chat on the menu dial) - not when a real keyboard opened the chat (Enter, /, reply) or
 -- a mouse click put focus in some box. And when a real keyboard or the mouse takes the chat box back while
@@ -29,14 +33,15 @@ local ADDON_NAME = ...;
 local KEY_WIDTH, KEY_HEIGHT, GAP = 36, 30, 4;
 local PLACEHOLDER = " ";
 
-local BACK, SHIFT, SYMBOLS, LETTERS, SPACE, ENTER = "BACK", "SHIFT", "SYMBOLS", "LETTERS", "SPACE", "ENTER";
+local BACK, SHIFT, SYMBOLS, LETTERS, SPACE, ENTER, CHAT = "BACK", "SHIFT", "SYMBOLS", "LETTERS", "SPACE", "ENTER", "CHAT";
 local SPECIAL_KEYS = {
 	[BACK] = { label = "Del", units = 1.6 },
 	[SHIFT] = { label = "Shift", units = 1.6 },
 	[SYMBOLS] = { label = "?123", units = 2 },
 	[LETTERS] = { label = "ABC", units = 2 },
-	[SPACE] = { label = "Space", units = 5 },
+	[SPACE] = { label = "Space", units = 4 },
 	[ENTER] = { label = "Enter", units = 2.5 },
+	[CHAT] = { label = "Say", units = 2.5 }, -- chat only; shows the chat type
 };
 -- No "|": the game reads it as the start of an escape code.
 local PAGES = {
@@ -45,13 +50,13 @@ local PAGES = {
 		{ "q", "w", "e", "r", "t", "y", "u", "i", "o", "p" },
 		{ "a", "s", "d", "f", "g", "h", "j", "k", "l", "'" },
 		{ SHIFT, "z", "x", "c", "v", "b", "n", "m", ",", "." },
-		{ SYMBOLS, SPACE, ENTER },
+		{ SYMBOLS, CHAT, SPACE, ENTER },
 	},
 	symbols = {
 		{ "!", "@", "#", "$", "%", "&", "*", "(", ")", "-", BACK },
 		{ "/", "\\", ":", ";", "\"", "?", "+", "=", "_", "~" },
 		{ "<", ">", "[", "]", "{", "}", "^", "`", "'", "," },
-		{ LETTERS, SPACE, ENTER },
+		{ LETTERS, CHAT, SPACE, ENTER },
 	},
 };
 
@@ -218,12 +223,59 @@ end
 -- Typing
 -------------------------------------------------------------------------------
 
+-- The chat types the chat key steps through, each when it's there to use, and the slash command that
+-- switches to it. Reply: a whisper to whoever whispered last (Blizzard's own getter, which only reads).
+local function LastTell()
+	if ChatFrameUtil and ChatFrameUtil.GetLastTellTarget then
+		return ChatFrameUtil.GetLastTellTarget();
+	end
+end
+
+local CHAT_TYPES = { -- Reply last: from it, round to Say
+	{ chatType = "SAY", command = "/s" },
+	{ chatType = "PARTY", command = "/p", available = function() return IsInGroup(LE_PARTY_CATEGORY_HOME) end },
+	{ chatType = "RAID", command = "/ra", available = function() return IsInRaid(LE_PARTY_CATEGORY_HOME) end },
+	{ chatType = "INSTANCE_CHAT", command = "/i", available = function() return IsInGroup(LE_PARTY_CATEGORY_INSTANCE) end },
+	{ chatType = "GUILD", command = "/g", available = function() return IsInGuild() end },
+	{ reply = true, command = "/r", available = function() return LastTell() ~= nil end },
+};
+local CHAT_LABELS = {
+	SAY = "Say", PARTY = "Party", RAID = "Raid", INSTANCE_CHAT = "Instance", GUILD = "Guild", OFFICER = "Officer",
+	YELL = "Yell", EMOTE = "Emote", RAID_WARNING = "Warning",
+};
+
+local function IsWhisper(chatType)
+	return chatType == "WHISPER" or chatType == "BN_WHISPER";
+end
+
+local function ChatLabel(box)
+	local chatType = box:GetAttribute("chatType");
+	if IsWhisper(chatType) then
+		local name = tostring(box:GetAttribute("tellTarget") or "");
+		if not name:find("^|K") then -- a Battle.net name shows as itself
+			name = name:gsub("%-.*$", "");
+			if Utf8Length(name) > 9 then
+				name = name:sub(1, 8) .. "..";
+			end
+		end
+		return "To " .. name;
+	elseif chatType == "CHANNEL" then
+		return "/" .. tostring(box:GetAttribute("channelTarget") or "?");
+	end
+	return CHAT_LABELS[chatType] or "Chat";
+end
+
 local function UpdatePreview()
 	local shown = text;
 	if Utf8Length(shown) > 48 then
 		shown = "..." .. shown:sub(-48);
 	end
 	keyboard.Preview:SetText(shown .. "_");
+	if isChat and target then
+		for _, chatKey in ipairs(keyboard.ChatKeys) do
+			chatKey:SetText(ChatLabel(target));
+		end
+	end
 end
 
 local function UpdateLabels()
@@ -270,15 +322,49 @@ local function Insert(characters)
 	SetText(text .. characters);
 end
 
+-- The page's keys, the chat key only for chat; each row centred over the keys it shows.
 local function Layout()
 	for name, rows in pairs(keys) do
-		for _, row in ipairs(rows) do
+		for r, row in ipairs(rows) do
+			local width = 0;
 			for _, button in ipairs(row) do
-				button:SetShown(name == page);
+				button:SetShown(name == page and (button.key ~= CHAT or isChat));
+				if button:IsShown() then
+					width = width + button.width + (width > 0 and GAP or 0);
+				end
+			end
+			local x = (keyboard:GetWidth() - width) / 2;
+			for _, button in ipairs(row) do
+				if button:IsShown() then
+					button:ClearAllPoints();
+					button:SetPoint("TOPLEFT", x, -56 - (r - 1) * (KEY_HEIGHT + GAP));
+					x = x + button.width + GAP;
+				end
 			end
 		end
 	end
 	keyboard:SetHeight(84 + #keys[page] * (KEY_HEIGHT + GAP));
+end
+
+-- The next chat type there is to use, after the box's own: its slash command goes before the text, and the
+-- chat box's parsing (as when typing it) switches the chat and leaves the text.
+local function NextChatType()
+	local available = {};
+	for _, entry in ipairs(CHAT_TYPES) do
+		if not entry.available or entry.available() then
+			available[#available + 1] = entry;
+		end
+	end
+	-- After the box's own type; from anything else (a reply - always last - a whisper, a channel): Say.
+	local chatType = target:GetAttribute("chatType");
+	local current = 0;
+	for i, entry in ipairs(available) do
+		if entry.chatType == chatType then
+			current = i;
+		end
+	end
+	local nextType = available[current % #available + 1];
+	SetText(nextType.command .. " " .. text);
 end
 
 local function Close()
@@ -301,6 +387,10 @@ local function Press(button)
 		page = key == SYMBOLS and "symbols" or "letters";
 		Layout();
 		RefreshNavigation();
+	elseif key == CHAT then
+		if isChat and target then
+			NextChatType();
+		end
 	else
 		Insert(shift and key:upper() or key);
 		if shift then
@@ -466,22 +556,17 @@ local function CreateKeyboard()
 	keyboard.Preview:SetPoint("TOPRIGHT", -16, -32);
 	keyboard.Preview:SetJustifyH("LEFT");
 
+	keyboard.ChatKeys = {};
 	for name, layout in pairs(PAGES) do
 		keys[name] = {};
 		for r, rowKeys in ipairs(layout) do
 			local row = {};
-			local width = 0;
 			for c, key in ipairs(rowKeys) do
 				row[c] = CreateKey(key);
-				width = width + row[c].width + (c > 1 and GAP or 0);
-			end
-			-- Each row centred.
-			local x = (keyboard:GetWidth() - width) / 2;
-			for _, button in ipairs(row) do
-				button:SetPoint("TOPLEFT", x, -56 - (r - 1) * (KEY_HEIGHT + GAP));
-				x = x + button.width + GAP;
-				if button.key == SHIFT then
-					keyboard.ShiftKey = button;
+				if key == SHIFT then
+					keyboard.ShiftKey = row[c];
+				elseif key == CHAT then
+					table.insert(keyboard.ChatKeys, row[c]);
 				end
 			end
 			keys[name][r] = row;

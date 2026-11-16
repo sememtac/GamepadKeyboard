@@ -16,6 +16,12 @@ work, and a line starting with `/` runs as a command (`/dance`, `/cast`, `/targe
 sent in sticks for the next line, as it does with Enter. Enter with nothing typed just closes the chat.
 A chat line starts with Shift on.
 
+The **chat key** (bottom row, beside Space) shows who you're talking to - Say, Party, To Bob, /2 - and
+steps on to the next chat type there is to use: Say, Party (in a group), Raid (in a raid), Instance (in an
+instance group), Guild (in a guild), and a reply to whoever whispered you last. What you've typed stays.
+It switches as typing `/p ` does - the type's slash command goes in front of the text and the chat box's
+own parsing switches the chat - so it's the same as typing the prefix yourself.
+
 **B** goes back to the chat box with the text instead, unsent; the chat's own **A Send** sends it from
 there. Enter does that too, with a note in the chat, for the few lines it can't send itself: Battle.net
 whispers, chat types with no slash prefix, channels picked by name
@@ -78,7 +84,7 @@ secure, the keyboard is a protected frame; it only opens out of combat and close
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 85 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 105 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
 focus, the menu dial's button already up), and real-keyboard keys delivered as the game delivers them
@@ -92,6 +98,8 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
       still the chat type next time; `/2 hello` goes to channel 2; `/dance` dances; `/cast` a spell
       casts it.
 - [ ] B: back on the chat box with the text and "A Send" showing; A sends it.
+- [ ] The chat key: in a group it goes Say -> Party (-> Raid / Instance / Guild / To <last whisperer>) and
+      back to Say, the chat box's header changes with it, the text stays, and Enter sends to that chat.
 - [ ] LT / RT move between the keyboard and other open windows.
 - [ ] The keyboard can be dragged and reopens where it was left; for chat it doesn't cover the chat window.
 - [ ] After B, Chat on the menu dial (or A on a name box) brings the keyboard back.
