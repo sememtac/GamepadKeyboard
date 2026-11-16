@@ -15,9 +15,10 @@
 -- say); a single space put in first keeps it open. Enter in any other box runs that box's own Enter action.
 --
 -- Whichever the player is using has the text box. The keyboard opens only when the controller asked for it
--- (A on a text box, Chat on the menu dial) - not for Enter on a real keyboard, or a mouse click that puts
--- focus in some box. And while it's open, typing on a real keyboard takes over: the key goes into the box,
--- this keyboard steps aside, and Enter on the real keyboard is this keyboard's Enter.
+-- (A on a text box, Chat on the menu dial) - not when a real keyboard opened the chat (Enter, /, reply) or
+-- a mouse click put focus in some box. And when a real keyboard or the mouse takes the chat box back while
+-- it's open, it steps aside. Keys are only ever looked at (IsKeyDown), never listened to: in this client
+-- addon code can't pass a key on (SetPropagateKeyboardInput is restricted), so a listening frame keeps them.
 --
 -- In combat Blizzard's gamepad UI takes no addon windows, so the keyboard doesn't open (a real keyboard
 -- types as always), and an open one closes when combat starts; the text stays in the box.
@@ -63,7 +64,7 @@ local shift = false;
 local handedBack; -- the box the keyboard just went back to: not opened for again until focus moves on
 local closing = false; -- while closing hands the controller back (which focuses the box again)
 local lastInput = "gamepad"; -- what the player pressed last: "gamepad", "keyboard" or "mouse"
-local handingOver = false; -- a key on a real keyboard is taking over from this one
+local chatHadFocus; -- while open over chat: whether the chat box had typing focus last frame
 
 local function DB()
 	GamepadKeyboardDB = GamepadKeyboardDB or {};
@@ -349,7 +350,7 @@ end
 -- Before the secure macro action runs: the line to send (out of combat - the keyboard is closed in combat).
 local function EnterPreClick(button)
 	if InCombatLockdown() then
-		return; -- closed in combat; its line was emptied after the last press
+		return; -- closed in combat (its line was emptied after the last press)
 	end
 	local line, cannot;
 	if target and isChat then
@@ -404,11 +405,8 @@ local function CreateKey(key)
 	local units = special and special.units or 1;
 	local button;
 	if key == ENTER then
-		-- Blizzard's secure macro action, on release (a controller's A, a mouse click, and Enter on a real
-		-- keyboard through a binding to the first one, which works on either page).
-		local name = not keyboard.EnterKey and "GamepadKeyboardEnterKey" or nil;
-		button = CreateFrame("Button", name, keyboard, "SecureActionButtonTemplate, UIPanelButtonTemplate");
-		keyboard.EnterKey = keyboard.EnterKey or button;
+		-- Blizzard's secure macro action, on release (a controller's A and a mouse click both act).
+		button = CreateFrame("Button", nil, keyboard, "SecureActionButtonTemplate, UIPanelButtonTemplate");
 		button:RegisterForClicks("AnyUp");
 		button:SetAttribute("type", "macro");
 		button:SetAttribute("useOnKeyDown", false);
@@ -424,52 +422,6 @@ local function CreateKey(key)
 	button:SetText(special and special.label or key);
 	button.key = key;
 	return button;
-end
-
--- A real keyboard while this one is open. A typing key is kept from the game's key bindings (no walking off
--- on W, no reply on R): its character goes into the box (Backspace deletes), and when the key comes up this
--- keyboard closes, back to the box with typing focus, where the real keyboard carries on. Every other key
--- goes on: Enter to the binding that presses this keyboard's Enter, Escape to close it (a special frame),
--- the rest to their own bindings (the game sends a key's release only to a frame that kept it).
-local ENTER_KEYS = { ENTER = true, NUMPADENTER = true };
-
-local function IsTypingKey(key)
-	return #key == 1 or key == "SPACE" or key == "BACKSPACE"
-		or (key:find("^NUMPAD") ~= nil and not ENTER_KEYS[key]);
-end
-
-local function KeyDown(self, key)
-	local typing = IsTypingKey(key);
-	self:SetPropagateKeyboardInput(not typing);
-	if not typing then
-		return;
-	end
-	lastInput = "keyboard";
-	if key == "BACKSPACE" and target then
-		Sync();
-		DeleteLast();
-	end
-	handingOver = true;
-end
-
-local function Char(_, character)
-	if handingOver and target and character ~= "|" then -- no "|", as on this keyboard
-		Sync();
-		Insert(character);
-	end
-end
-
--- The chat puts typing focus back in its box when the controller returns to it; a box in another window
--- may not get it back, so it's given it (never the chat box: addon code doesn't focus that).
-local function KeyUp()
-	if handingOver then
-		handingOver = false;
-		local box, chat = target, isChat;
-		Close();
-		if box and not chat and not box:HasFocus() then
-			box:SetFocus();
-		end
-	end
 end
 
 local function CreatePrompt(key, label, anchorTo)
@@ -504,11 +456,6 @@ local function CreateKeyboard()
 	end);
 	keyboard:Hide();
 	tinsert(UISpecialFrames, "GamepadKeyboardFrame");
-	keyboard:SetPropagateKeyboardInput(true); -- each key decides in KeyDown
-	keyboard:EnableKeyboard(true);
-	keyboard:SetScript("OnKeyDown", KeyDown);
-	keyboard:SetScript("OnChar", Char);
-	keyboard:SetScript("OnKeyUp", KeyUp);
 
 	keyboard.Title = keyboard:CreateFontString(nil, "OVERLAY", "GameFontNormal");
 	keyboard.Title:SetPoint("TOP", 0, -5);
@@ -561,12 +508,7 @@ local function CreateKeyboard()
 		end
 		Register();
 		RefreshNavigation();
-		handingOver = false;
-		if not InCombatLockdown() then
-			for enterKey in pairs(ENTER_KEYS) do
-				SetOverrideBindingClick(keyboard, true, enterKey, "GamepadKeyboardEnterKey");
-			end
-		end
+		chatHadFocus = nil;
 	end);
 	-- However it closes (Enter, B, Escape, combat): back to the window the box belongs to, which focuses the
 	-- box again - not a request for the keyboard - and the box isn't opened for again until focus moves
@@ -576,10 +518,6 @@ local function CreateKeyboard()
 			target:SetText("");
 		end
 		handedBack = target;
-		handingOver = false;
-		if not InCombatLockdown() then
-			ClearOverrideBindings(keyboard); -- else after combat
-		end
 		closing = true;
 		Unregister();
 		closing = false;
@@ -629,17 +567,14 @@ local function Open(box)
 end
 
 -- The controller asked if one of its buttons is down now (A on a text box) or was what the player pressed
--- last (the menu dial acts as its button comes up). A key on a real keyboard or a mouse button since then
--- means they didn't: Enter to chat, a click that puts focus in a box. Modifiers don't count - in Forever
--- the controller's own modifiers are Shift and Ctrl.
+-- last (the menu dial acts as its button comes up). A real keyboard's chat key held (Enter, /, reply - the
+-- keys bound to opening chat that aren't the controller's) or a mouse button since then means they didn't.
 local PAD_BUTTONS = {
 	"PAD1", "PAD2", "PAD3", "PAD4", "PAD5", "PAD6", "PADDUP", "PADDDOWN", "PADDLEFT", "PADDRIGHT",
 	"PADLSHOULDER", "PADRSHOULDER", "PADLTRIGGER", "PADRTRIGGER", "PADLSTICK", "PADRSTICK",
 	"PADBACK", "PADFORWARD", "PADSYSTEM", "PADSOCIAL", "PADPADDLE1", "PADPADDLE2", "PADPADDLE3", "PADPADDLE4",
 };
-local MODIFIER_KEYS = {
-	LSHIFT = true, RSHIFT = true, LCTRL = true, RCTRL = true, LALT = true, RALT = true, LMETA = true, RMETA = true,
-};
+local CHAT_BINDINGS = { "OPENCHAT", "OPENCHATSLASH", "REPLY", "REPLY2" };
 
 local function PadButtonDown()
 	for _, button in ipairs(PAD_BUTTONS) do
@@ -650,7 +585,23 @@ local function PadButtonDown()
 	return false;
 end
 
+local function ChatKeyDown()
+	for _, binding in ipairs(CHAT_BINDINGS) do
+		for _, bound in ipairs({ GetBindingKey(binding) }) do
+			local key = bound:match("^.*%-(.+)$") or bound; -- without its modifiers (SHIFT-R: R)
+			if not key:find("^PAD") and IsKeyDown(key) then
+				return true;
+			end
+		end
+	end
+	return false;
+end
+
 local function ControllerAsked()
+	if ChatKeyDown() then
+		lastInput = "keyboard"; -- for the frame check after this too, if the key's already up by then
+		return false;
+	end
 	return PadButtonDown() or lastInput == "gamepad";
 end
 
@@ -690,25 +641,22 @@ for index = 1, NUM_CHAT_WINDOWS or 10 do
 	end
 end
 
--- One check per frame: the keyboard opens when typing focus moves to a text box. The same frame hears every
--- key and passes it on, for what the player pressed last; controller buttons are checked each frame.
+-- One check per frame: what the player is pressing, the chat box taken back, and the keyboard opens when
+-- typing focus moves to a text box.
 local lastFocus;
 local watcher = CreateFrame("Frame");
-watcher:SetFrameStrata("TOOLTIP"); -- hears keys before other frames do
-
-local function ListenToKeys()
-	watcher:SetPropagateKeyboardInput(true); -- first: it must never keep a key
-	watcher:EnableKeyboard(true);
-end
-
-watcher:SetScript("OnKeyDown", function(_, key)
-	if not MODIFIER_KEYS[key] then
-		lastInput = key:find("^PAD") and "gamepad" or "keyboard";
-	end
-end);
 watcher:SetScript("OnUpdate", function()
 	if lastInput ~= "gamepad" and PadButtonDown() then
 		lastInput = "gamepad";
+	end
+	-- Open over chat, the chat box has no typing focus (the controller is here). Getting it back means a
+	-- real keyboard (Enter, /) or the mouse took the chat: this keyboard steps aside, the text stays.
+	if keyboard and keyboard:IsShown() and isChat and target then
+		local hasFocus = target:HasFocus();
+		if chatHadFocus == false and hasFocus then
+			Close();
+		end
+		chatHadFocus = hasFocus;
 	end
 	local focus = GetCurrentKeyBoardFocus();
 	if focus == lastFocus then
@@ -730,19 +678,10 @@ watcher:SetScript("OnEvent", function(_, event)
 		lastInput = "mouse";
 	elseif event == "PLAYER_REGEN_DISABLED" then
 		Close(); -- the text stays in the box
-	else
-		ListenToKeys(); -- if the addon loaded in combat
-		if keyboard and not keyboard:IsShown() then
-			ClearOverrideBindings(keyboard);
-			if registered then
-				Unregister(); -- a hide Blizzard refused as combat started
-			end
-		end
+	elseif keyboard and not keyboard:IsShown() and registered then
+		Unregister(); -- a hide Blizzard refused as combat started
 	end
 end);
-if not InCombatLockdown() then
-	ListenToKeys();
-end
 
 SLASH_GAMEPADKEYBOARD1 = "/gk";
 SLASH_GAMEPADKEYBOARD2 = "/gamepadkeyboard";

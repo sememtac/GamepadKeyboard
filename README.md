@@ -25,13 +25,14 @@ rather than number, and lines too long to fit with their prefix.
 
 Whichever you're using has the text box:
 
-- The keyboard opens only when the **controller** asked for the text box. Enter on a real keyboard opens
-  the chat for that keyboard, and a mouse click that puts focus in some box (a ctrl-click that shows a link
-  to copy, say) doesn't bring it up either. Chat on the menu dial brings it up whenever you want it.
-- While it's open, **typing on a real keyboard takes over**: the letter goes into the text box, the
-  on-screen keyboard steps aside, and you carry on typing on the real one. Backspace deletes. Enter on the
-  real keyboard is the on-screen Enter (sends, closes the chat). Keys that don't type (F1, Tab, arrows),
-  Shift / Ctrl / Alt and the controller's buttons work as usual and leave it open; Escape closes it.
+- The keyboard opens only when the **controller** asked for the text box. Enter, `/` or reply on a real
+  keyboard opens the chat for that keyboard, and a mouse click that puts focus in some box (a ctrl-click
+  that shows a link to copy, say) doesn't bring it up either. Chat on the menu dial brings it up whenever
+  you want it.
+- While it's open over chat, **Enter on a real keyboard (or a click in the chat box) takes the chat back**:
+  the on-screen keyboard steps aside, and the text and its whisper target stay for the real keyboard to
+  carry on. Other keys do what they always do.
+- The addon never listens to your keys, so the real keyboard always works as usual.
 
 ## Good to know
 
@@ -50,16 +51,15 @@ Whichever you're using has the text box:
 frames' `SetGamepadFocus` are post-hooked (`hooksecurefunc`) for a box that is asked for again while it
 already has focus; the refocus that closing the keyboard causes is ignored. It opens only if the controller
 asked: one of its buttons is down (`IsKeyDown("PAD1")` and the rest, as Blizzard's class-action flyout
-checks them) or was what the player pressed last. A frame that hears every key and passes it on
-(`SetPropagateKeyboardInput(true)`), and `GLOBAL_MOUSE_DOWN`, note a real keyboard or the mouse in between;
-Shift and Ctrl don't count, since Forever's controller modifiers are those too.
+checks them) or was what the player pressed last. A real keyboard is seen only by a chat key being held as
+the box takes focus (`IsKeyDown` on the keys bound to Open Chat, Open Chat Slash and the two replies, not
+the controller's); the mouse by `GLOBAL_MOUSE_DOWN`.
 
-While it's open the keyboard listens for keys itself. A typing key (a character, Space, Backspace, the
-number pad) is kept from the game's key bindings, its character (`OnChar`) goes into the box, and on its
-release the keyboard closes, back to the box with typing focus. Every other key is passed on; Enter and the
-number pad's Enter are bound (`SetOverrideBindingClick`, out of combat, cleared when it closes) to the
-secure Enter key, so the real Enter sends through the same secure macro line. The keyboard reads the box
-before each key, so text typed into it on a real keyboard is carried on, not overwritten. The keyboard is a popup in Blizzard's gamepad UI
+Keys are only ever looked at, never listened to. In Forever `SetPropagateKeyboardInput` is restricted for
+addon code, so a frame of ours with `EnableKeyboard(true)` would keep every key (0.4 did, and broke the
+real keyboard). Open over chat, the chat box has no typing focus; when it gets it back (Blizzard's Enter
+binding is `OpenChat(nil)`, which keeps the text), the keyboard closes. It reads the box before each key,
+so text typed into a box that kept focus is carried on, not overwritten. The keyboard is a popup in Blizzard's gamepad UI
 (`HandlePopupShown` / `HandlePopupHide`, the functions it wraps for addons), so closing it returns the
 controller to the window the box belongs to. For a chat box, a single space is put in before the keyboard
 takes the controller: that keeps Blizzard from closing the empty box and resetting its chat type (a whisper
@@ -76,11 +76,12 @@ secure, the keyboard is a protected frame; it only opens out of combat and close
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 90 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 84 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
 focus, the menu dial's button already up), and real-keyboard keys delivered as the game delivers them
-(focused box first, then key listeners from the top strata down, then bindings). Only the game can confirm:
+(focused box first, then key listeners from the top strata down, then bindings), with
+`SetPropagateKeyboardInput` refused to addon code as in Forever. Only the game can confirm:
 
 - [ ] Chat (from the menu dial's Chat, or the chat binding): the keyboard opens; A on a key types into the
       chat box.
@@ -97,10 +98,9 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
 - [ ] Enter on the real keyboard (in controller mode): the chat opens with no on-screen keyboard, and the
       real keyboard types and sends as usual.
 - [ ] Ctrl-click on an item: no on-screen keyboard.
-- [ ] With the on-screen keyboard open in chat, typing a letter on the real keyboard: the letter is in the
-      chat box, the on-screen keyboard is gone, the next letters land in the box, nothing else happens
-      (no walking on W, no reply on R). Enter on the real keyboard while it's open sends.
-- [ ] Walking, keybinds and Escape on the real keyboard work as before when the on-screen keyboard is
-      closed.
+- [ ] With the on-screen keyboard open in chat, Enter on the real keyboard: the on-screen keyboard is gone,
+      the text is in the chat box, the real keyboard types on and sends.
+- [ ] Every key on the real keyboard works as before (walking, Escape, Ctrl, keybinds), with the on-screen
+      keyboard open or closed.
 - [ ] Combat starting while typing: the keyboard closes without an "Interface action failed" or "blocked"
       message, and the text is still in the chat box.

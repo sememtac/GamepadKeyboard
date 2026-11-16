@@ -98,10 +98,10 @@ function Frame:SetFrameLevel(v) self.level = v end
 function Frame:GetFrameLevel() return self.level or 1 end
 function Frame:EnableMouse(v) self.mouse = v end
 function Frame:EnableKeyboard(v) self.keyboardEnabled = v end
--- Insecure code can't change it in combat. Off (keep every key) until set, as in the game.
+-- Restricted in Forever (HasRestrictions): addon code is refused, so a frame it lets hear keys keeps every
+-- key (off until set). Only the addon calls it here.
 function Frame:SetPropagateKeyboardInput(v)
-	if world.inCombat() then W.blockedMessages = (W.blockedMessages or 0) + 1; return end
-	self.propagate = v
+	W.blockedMessages = (W.blockedMessages or 0) + 1
 end
 function Frame:SetMovable(v) self.movable = v end
 function Frame:RegisterForDrag(...) self.drag = { ... } end
