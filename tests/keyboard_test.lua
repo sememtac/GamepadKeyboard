@@ -627,6 +627,32 @@ check(kb:IsShown() and key("CHAT") ~= nil and chatBox:GetText() == " ",
 	"...and back to the chat window then: the keyboard types in chat again, not taken for a real keyboard's")
 kb:SmartNavigationCloseHandler(); mailTo:ClearFocus(); manager:FrameHidden(mail); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 
+-- ---- a box of several lines (the mail's text): Enter is a new line ---------------------------------------------------
+local mailBody = W.CreateFrame("EditBox", "SendMailBodyEditBox", mail, "InputBoxTemplate")
+mailBody.center = { 400, 500 }
+mailBody:SetMultiLine(true)
+local bodyEntered = 0
+mailBody.scripts.OnEnterPressed = function() bodyEntered = bodyEntered + 1 end
+manager:FrameShown(mail)
+padA(function() mailBody:SetFocus() end)
+check(key("ENTER").text == "New line" and kb.HoldPrompt.text.text == "New line", "a box of several lines: Enter says New line (the key and the hold prompt)")
+type("hi"); playerClick(key("ENTER"))
+check(mailBody:GetText() == "hi\n" and kb:IsShown() and bodyEntered == 0 and preview() == "|   line 2 of 2",
+	"Enter: a new line, the keyboard stays, the box's Enter isn't run; the preview shows the line it's on")
+type("yo")
+for _ = 1, 3 do pad("PADLSHOULDER") end
+check(preview() == "hi|   line 1 of 2", "the cursor back on the first line: the preview shows that line")
+pressA(0.6)
+check(mailBody:GetText() == "hi\n\nyo" and kb:IsShown(), "holding A there: a new line too")
+kb:SmartNavigationCloseHandler(); mailBody:ClearFocus(); poll()
+check(key("ENTER").text == "Enter" or not kb:IsShown(), "(closed)")
+-- The keyboard goes when its box does (the window closes).
+padA(function() mailTo:SetFocus() end)
+check(kb:IsShown(), "(open on To:)")
+mail:Hide(); poll()
+check(not kb:IsShown(), "the window closed: the keyboard goes with its box")
+mail:Show(); mailTo:ClearFocus(); mailTo.text = ""; mailBody.text = ""; manager:FrameHidden(mail); poll()
+
 -- Only Blizzard's own lookup, never a box's own function or completion handler.
 local custom = W.CreateFrame("EditBox", nil, mail, "InputBoxTemplate")
 custom.center = { 400, 700 }
@@ -661,6 +687,62 @@ type("ali")
 playerClick(nameKeys()[1])
 check(withCommand:GetText() == "/invite Alice ", "a box with a command and a space, as Blizzard's list puts them in")
 kb:SmartNavigationCloseHandler(); withCommand:ClearFocus(); manager:FrameHidden(mail); poll()
+
+-- ---- settings ------------------------------------------------------------------------------------------------------
+-- Close after Enter, off: chat sends and stays open for the next line, in the same chat.
+GamepadKeyboardDB.closeOnEnter = false
+openChat("PARTY"); poll()
+type("one"); playerClick(key("ENTER"))
+check(macros[#macros] == "/p One" and kb:IsShown() and indexOf(chatFrame) ~= nil and chatBox:GetText() == " " and preview() == "|"
+	and key("SHIFT").locked, "Close after Enter off: sent, the keyboard and the chat stay, ready for the next line")
+type("two"); playerClick(key("ENTER"))
+check(macros[#macros] == "/p Two" and chatBox.attrs.chatType == "PARTY", "...the next line goes to the same chat")
+kb:SmartNavigationCloseHandler()
+check(not kb:IsShown() and chatBox:GetText() == "" and chatBox:HasFocus(), "...B: back on the chat box, empty")
+chatBox:ClearFocus(); manager:FrameHidden(chatFrame); poll()
+-- ...in another box: its Enter runs, the keyboard stays; if Enter hides the box, the keyboard goes.
+local searchPanel = W.CreateFrame("Frame", "SearchPanel", UIParent)
+local search = W.CreateFrame("EditBox", nil, searchPanel, "InputBoxTemplate")
+search.center = { 400, 700 }
+local searched = 0
+search.scripts.OnEnterPressed = function() searched = searched + 1 end
+manager:FrameShown(searchPanel)
+padA(function() search:SetFocus() end)
+type("ore"); playerClick(key("ENTER"))
+check(searched == 1 and kb:IsShown() and search:GetText() == "ore", "...in another box: its Enter runs, the keyboard stays")
+search.scripts.OnEnterPressed = function() searchPanel:Hide() end
+playerClick(key("ENTER")); poll()
+check(not kb:IsShown(), "...and when its Enter closes the window, the keyboard goes too")
+searchPanel:Show(); search:ClearFocus(); manager:FrameHidden(searchPanel); poll()
+GamepadKeyboardDB.closeOnEnter = nil
+-- A chat line without a capital to start.
+GamepadKeyboardDB.chatCapital = false
+openChat("SAY"); poll()
+check(not key("SHIFT").locked, "Capital at the start of a chat line, off: Shift off")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+GamepadKeyboardDB.chatCapital = nil
+-- No name keys.
+GamepadKeyboardDB.names = false
+manager:FrameShown(mail)
+padA(function() mailTo:SetFocus() end)
+type("bo")
+check(shownNames() == "" and kb.height == 84 + 5 * 34, "Name suggestions off: no name row")
+kb:SmartNavigationCloseHandler(); mailTo:ClearFocus(); mailTo.text = ""; manager:FrameHidden(mail); poll()
+GamepadKeyboardDB.names = nil
+-- A longer hold.
+GamepadKeyboardDB.holdTime = 1
+openChat("SAY"); poll()
+type("a")
+navCurrent = key("b")
+held.PAD1 = true; secureClick(GamepadKeyboardAButton, true)
+check(ring.holding == 1, "Hold time 1 s: the ring fills over 1 s")
+held.PAD1 = nil; secureClick(GamepadKeyboardAButton, false); poll() -- (a tap: b)
+pressA(0.6)
+check(chatBox:GetText() == "Abb" and kb:IsShown(), "...and a 0.6 s press is a tap then")
+pressA(1.1)
+check(not kb:IsShown() and macros[#macros] == "/s Abb", "...a 1.1 s one is Enter")
+GamepadKeyboardDB.holdTime = nil
+poll()
 
 -- ---- the chat key ------------------------------------------------------------------------------------------------
 openChat("SAY"); poll()

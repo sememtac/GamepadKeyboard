@@ -152,6 +152,8 @@ function EditBox:SetAutoFocus(v) self.autoFocus = v end -- on unless turned off,
 function EditBox:SetMaxLetters(n) self.maxLetters = n end
 function EditBox:GetMaxLetters() return self.maxLetters or 0 end
 function EditBox:IsNumeric() return self.numeric == true end
+function EditBox:SetMultiLine(v) self.multiLine = v end
+function EditBox:IsMultiLine() return self.multiLine == true end
 function EditBox:SetFocus()
 	if W.focused == self then return end
 	local old = W.focused

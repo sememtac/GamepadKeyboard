@@ -90,6 +90,24 @@ local function DB()
 	return GamepadKeyboardDB;
 end
 
+-- The settings (the options panel), each with its default.
+local DEFAULTS = {
+	autoOpen = true, -- opens when the controller asks for a text box
+	closeOnEnter = true, -- Enter closes the keyboard (in chat: sends and closes the chat)
+	chatCapital = true, -- a chat line starts with Shift on
+	names = true, -- name keys for boxes that look names up
+	holdTime = 0.5, -- holding A this long (seconds) is Enter
+	scale = 1, -- the keyboard's size
+};
+
+local function Setting(key)
+	local value = DB()[key];
+	if value == nil then
+		return DEFAULTS[key];
+	end
+	return value;
+end
+
 local function Print(message)
 	print("|cff33ff99Gamepad Keyboard|r: " .. message);
 end
@@ -341,13 +359,24 @@ local function UpdateSuggestions()
 	end
 end
 
+-- The line the cursor is on (a box can have several: "line 2 of 3" after it), at most 48 characters of it
+-- around the cursor.
+local LINE_FORMAT = "|cff808080   line %d of %d|r";
+
 local function UpdatePreview()
-	local length = Utf8Length(text);
-	local first = math.max(0, math.min(cursor - PREVIEW_LENGTH + 8, length - PREVIEW_LENGTH));
+	local before, after = Split(text, cursor);
+	local lineBefore, lineAfter = before:match("[^\n]*$"), after:match("^[^\n]*");
+	local column, length = Utf8Length(lineBefore), Utf8Length(lineBefore) + Utf8Length(lineAfter);
+	local first = math.max(0, math.min(column - PREVIEW_LENGTH + 8, length - PREVIEW_LENGTH));
 	local last = math.min(length, first + PREVIEW_LENGTH);
-	local before = select(2, Split(select(1, Split(text, cursor)), first));
-	local after = select(1, Split(select(2, Split(text, cursor)), last - cursor));
-	keyboard.Preview:SetText((first > 0 and "..." or "") .. before .. CARET .. after .. (last < length and "..." or ""));
+	local shown = (first > 0 and "..." or "") .. select(2, Split(lineBefore, first)) .. CARET
+		.. select(1, Split(lineAfter, last - column)) .. (last < length and "..." or "");
+	local _, lines = text:gsub("\n", "");
+	if lines > 0 then
+		local _, line = before:gsub("\n", "");
+		shown = shown .. LINE_FORMAT:format(line + 1, lines + 1);
+	end
+	keyboard.Preview:SetText(shown);
 	if isChat and target then
 		for _, chatKey in ipairs(keyboard.ChatKeys) do
 			chatKey:SetText(ChatLabel(target));
@@ -367,6 +396,13 @@ local function UpdateLabels()
 	keyboard.ShiftKey:LockHighlight();
 	if not shift then
 		keyboard.ShiftKey:UnlockHighlight();
+	end
+	local enterLabel = target and not isChat and target:IsMultiLine() and "New line" or "Enter";
+	for _, enterKey in ipairs(keyboard.EnterKeys) do
+		enterKey:SetText(enterLabel);
+	end
+	if keyboard.HoldPrompt then
+		keyboard.HoldPrompt.text:SetText(enterLabel);
 	end
 end
 
@@ -586,6 +622,15 @@ local function EnterPostClick(button)
 		if sent and ChatTypeInfo and ChatTypeInfo[chatType] and ChatTypeInfo[chatType].sticky == 1 then
 			box:SetAttribute("stickyType", chatType);
 		end
+		if not Setting("closeOnEnter") then
+			-- Staying open: the next line, in the same chat (its placeholder keeps the chat box open).
+			text, cursor = "", 0;
+			box:SetText(PLACEHOLDER);
+			shift = Setting("chatCapital");
+			UpdateLabels();
+			UpdatePreview();
+			return;
+		end
 		box:SetText("");
 		Close(); -- back on the chat box, now empty...
 		local manager = GetManager();
@@ -594,17 +639,26 @@ local function EnterPostClick(button)
 		end
 		return;
 	end
+	if box:IsMultiLine() then
+		Sync();
+		Insert("\n"); -- a new line (the mail's text, say); B is the way out
+		return;
+	end
 	local onEnter = box:GetScript("OnEnterPressed");
-	Close();
+	if Setting("closeOnEnter") then
+		Close();
+	end
 	if onEnter then
-		onEnter(box);
+		onEnter(box); -- staying open: if that hides the box, the keyboard goes with it (the frame check)
 	else
 		box:ClearFocus();
 	end
 end
 
--- Holding A this long (seconds) is Enter.
-local HOLD_TO_ENTER = 0.5;
+-- Holding A this long (seconds) is Enter - the ring, the lit Enter key and the release all ask here.
+local function HoldTime()
+	return Setting("holdTime");
+end
 local aDownAt; -- when A went down on the keyboard (nil when it isn't down)
 
 -- The footer's hold prompt: Blizzard's press-and-hold glyph (InputIconTextureMixin: a ring that fills
@@ -614,7 +668,7 @@ local function HoldRing(holding)
 	local prompt = keyboard and keyboard.HoldPrompt;
 	if prompt then
 		if holding then
-			prompt.icon:BeginHold(HOLD_TO_ENTER);
+			prompt.icon:BeginHold(HoldTime());
 		else
 			prompt.icon:EndHold();
 		end
@@ -636,7 +690,7 @@ local function APreClick(button, _, down)
 	end
 	HoldRing(false);
 	local current = SmartNavigation and SmartNavigation.GetCurrentButton and SmartNavigation:GetCurrentButton();
-	local held = aDownAt and GetTime() - aDownAt >= HOLD_TO_ENTER;
+	local held = aDownAt and GetTime() - aDownAt >= HoldTime();
 	if not aDownAt then
 		button.action = nil; -- a release whose press went elsewhere (A that opened the keyboard)
 	elseif held or (current and current.key == ENTER) then
@@ -744,7 +798,7 @@ end
 
 -- Held long enough: the Enter keys light up (letting go sends).
 local function UpdateHoldHint()
-	local lit = aDownAt ~= nil and GetTime() - aDownAt >= HOLD_TO_ENTER;
+	local lit = aDownAt ~= nil and GetTime() - aDownAt >= HoldTime();
 	if keyboard and keyboard.EnterKeys and keyboard.holdLit ~= lit then
 		keyboard.holdLit = lit;
 		for _, enterKey in ipairs(keyboard.EnterKeys) do
@@ -930,7 +984,7 @@ local function SetTarget(box)
 	target = box;
 	chatHadFocus = nil; -- a new box: no focus seen yet
 	isChat = box.chatFrame ~= nil;
-	suggesting = LooksUpNames(box);
+	suggesting = Setting("names") and LooksUpNames(box);
 	if not isChat then
 		lastNamesBox = box;
 	end
@@ -941,7 +995,7 @@ local function SetTarget(box)
 		box:SetText(PLACEHOLDER);
 	end
 	page = "letters";
-	shift = isChat and text == "";
+	shift = isChat and text == "" and Setting("chatCapital");
 end
 
 local function Open(box)
@@ -993,7 +1047,7 @@ local function ControllerAsked()
 end
 
 local function ShouldOpen(box)
-	return DB().autoOpen ~= false
+	return Setting("autoOpen")
 		and ControllerAsked()
 		and not InCombatLockdown()
 		and UsesGamepadUI()
@@ -1069,6 +1123,10 @@ watcher:SetScript("OnUpdate", function()
 	end
 	UpdateShortcuts();
 	UpdateHoldHint();
+	-- Its box gone (the window closed, Enter hid it): the keyboard goes too.
+	if keyboard and keyboard:IsShown() and target and not target:IsVisible() then
+		Close();
+	end
 	-- Open over chat, the chat box has no typing focus (the controller is here). Getting it back means a
 	-- real keyboard (Enter, /) or the mouse took the chat: this keyboard steps aside, the text stays.
 	if keyboard and keyboard:IsShown() and isChat and target then
@@ -1154,6 +1212,6 @@ SlashCmdList.GAMEPADKEYBOARD = function(message)
 		Print(message == "on" and "opens when a text box gets focus with the controller."
 			or "off - type with a keyboard; /gk on turns it back on.");
 	else
-		Print(("%s. /gk on | off, /gk reset puts it back in its usual place."):format(DB().autoOpen ~= false and "On" or "Off"));
+		Print(("%s. /gk on | off, /gk reset puts it back in its usual place."):format(Setting("autoOpen") and "On" or "Off"));
 	end
 end;
