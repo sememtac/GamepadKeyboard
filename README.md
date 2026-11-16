@@ -13,7 +13,7 @@ While the keyboard has the controller:
 | Button | Does |
 | --- | --- |
 | A | the key it's on (on release) |
-| hold A | Enter, from any key - the Enter key lights up once it's held long enough (half a second) |
+| hold A | Enter, from any key - the footer's A with a ring fills as you hold (Blizzard's press-and-hold glyph), and the Enter key lights up once it's long enough (half a second) |
 | X | Del (the letter before the cursor) |
 | Y | Space |
 | LB / RB | move the cursor left / right |
@@ -129,7 +129,7 @@ A picked name goes in as Blizzard's list puts it (`Ambiguate(name, "none")`, the
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 160 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 164 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
 focus, the menu dial's button already up), and real-keyboard keys delivered as the game delivers them
@@ -143,8 +143,8 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
       still the chat type next time; `/2 hello` goes to channel 2; `/dance` dances; `/cast` a spell
       casts it.
 - [ ] B: back on the chat box with the text and "A Send" showing; A sends it.
-- [ ] Tapping A types the key the D-pad is on; holding A (on any key) lights the Enter key, and letting go
-      sends (chat) or runs the box's Enter. After closing, A works as before everywhere.
+- [ ] Tapping A types the key the D-pad is on; holding A (on any key) fills the ring on the footer's second
+      A and lights the Enter key, and letting go sends (chat) or runs the box's Enter. After closing, A works as before everywhere.
 - [ ] X deletes, Y types a space, LB / RB move the gold cursor, and keys type at the cursor. With the
       controller on another window (LT / RT) or the keyboard closed, X / Y / LB / RB do what they did before
       (crossbar, the window's own actions).

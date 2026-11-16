@@ -170,6 +170,16 @@ function EditBox:IsEnabled() return self.enabled ~= false end
 -- InputIconTextureFrameTemplate (Blizzard's controller-glyph widget).
 local InputIcon = setmetatable({}, { __index = Frame })
 function InputIcon:SetInputKey(key) assert(type(key) == "string", "SetInputKey needs a key name"); self.inputKey = key end
+-- The press-and-hold glyph: BeginHold / EndHold do nothing unless it's a hold action (assertsafe).
+function InputIcon:SetIsHoldAction(v) self.isHoldAction = v end
+function InputIcon:BeginHold(duration)
+	if not self.isHoldAction then W.violations[#W.violations + 1] = "BeginHold on a plain glyph"; return end
+	self.holding = duration
+end
+function InputIcon:EndHold()
+	if not self.isHoldAction then W.violations[#W.violations + 1] = "EndHold on a plain glyph"; return end
+	self.holding = nil
+end
 
 local CLASSES = { Texture = Texture, FontString = FontString, MaskTexture = MaskTexture, Frame = Frame, Button = Button,
 	CheckButton = CheckButton, EditBox = EditBox, InputIcon = InputIcon }

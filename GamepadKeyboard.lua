@@ -607,6 +607,20 @@ end
 local HOLD_TO_ENTER = 0.5;
 local aDownAt; -- when A went down on the keyboard (nil when it isn't down)
 
+-- The footer's hold prompt: Blizzard's press-and-hold glyph (InputIconTextureMixin: a ring that fills
+-- radially over the hold). It fills while A is down on the keyboard; at full it's back to its ring, and the
+-- lit Enter key shows that letting go sends.
+local function HoldRing(holding)
+	local prompt = keyboard and keyboard.HoldPrompt;
+	if prompt then
+		if holding then
+			prompt.icon:BeginHold(HOLD_TO_ENTER);
+		else
+			prompt.icon:EndHold();
+		end
+	end
+end
+
 -- A, as a hidden secure button: on the press, the time; on the release, either Enter (held, or on the
 -- Enter key) - the Enter key's own PreClick / PostClick around Blizzard's secure macro action - or a tap on
 -- the key the D-pad is on (SmartNavigation's current button; its getter only reads).
@@ -617,8 +631,10 @@ local function APreClick(button, _, down)
 	if down then
 		aDownAt = GetTime();
 		button:SetAttribute("macrotext", "");
+		HoldRing(true);
 		return;
 	end
+	HoldRing(false);
 	local current = SmartNavigation and SmartNavigation.GetCurrentButton and SmartNavigation:GetCurrentButton();
 	local held = aDownAt and GetTime() - aDownAt >= HOLD_TO_ENTER;
 	if not aDownAt then
@@ -749,10 +765,13 @@ end
 hooksecurefunc("SetOverrideBindingClick", BoundOver);
 hooksecurefunc("SetOverrideBinding", BoundOver);
 
-local function CreatePrompt(key, label, anchorTo)
+local function CreatePrompt(key, label, anchorTo, isHold)
 	local icon = CreateFrame("Frame", nil, keyboard, "InputIconTextureFrameTemplate");
 	icon:SetSize(22, 22);
 	icon:SetInputKey(key);
+	if isHold then
+		icon:SetIsHoldAction(true); -- the press-and-hold ring
+	end
 	if anchorTo then
 		icon:SetPoint("LEFT", anchorTo, "RIGHT", 12, 0);
 	else
@@ -836,7 +855,9 @@ local function CreateKeyboard()
 		button:Hide();
 	end
 
-	keyboard.Prompts = { CreatePrompt(GAMEPAD_FACE_BOTTOM, "Type (hold: Enter)") };
+	keyboard.Prompts = { CreatePrompt(GAMEPAD_FACE_BOTTOM, "Type") };
+	keyboard.HoldPrompt = CreatePrompt(GAMEPAD_FACE_BOTTOM, "Enter", keyboard.Prompts[1].text, true);
+	table.insert(keyboard.Prompts, keyboard.HoldPrompt);
 	for _, prompt in ipairs({
 		{ GAMEPAD_FACE_LEFT, "Del" }, { GAMEPAD_FACE_TOP, "Space" }, { GAMEPAD_FACE_RIGHT, "Back" },
 		{ GAMEPAD_SHOULDER_LEFT, "" }, { GAMEPAD_SHOULDER_RIGHT, "Cursor" },
@@ -873,6 +894,7 @@ local function CreateKeyboard()
 		handedBack = target;
 		ClearShortcuts();
 		aDownAt = nil; -- a press the keyboard closed under isn't a hold next time
+		HoldRing(false);
 		closing = true;
 		Unregister();
 		closing = false;

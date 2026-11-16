@@ -318,6 +318,7 @@ local function type(s) for c in s:gmatch(".") do playerClick(key(c == " " and "S
 -- ---- chat: a whisper reply ----------------------------------------------------------------------------------
 openChat("WHISPER", "Bob"); poll()
 local kb = keyboard()
+local ring = kb.HoldPrompt and kb.HoldPrompt.icon -- the footer's press-and-hold glyph
 check(kb and kb.point and kb.point[1] == "BOTTOMLEFT" and kb.point[2] == chatFrame and kb.point[3] == "BOTTOMRIGHT",
 	"for chat it opens beside the chat window, not over it")
 check(kb and kb:IsShown(), "chat box focused with the controller: the keyboard opens")
@@ -494,15 +495,19 @@ openChat("SAY"); poll()
 type("ok")
 navCurrent = key("a")
 pressA(0.3)
-check(#macros == before and chatBox:GetText() == "Oka" and kb:IsShown(), "a press shorter than the hold: a tap")
--- While held: the Enter keys light up once it's long enough.
+check(#macros == before and chatBox:GetText() == "Oka" and kb:IsShown() and not ring.holding, "a press shorter than the hold: a tap (the ring stops)")
+-- The footer: A Type, and Blizzard's press-and-hold glyph for A, Enter.
+check(kb.Prompts[1].text.text == "Type" and ring and ring.inputKey == "PAD1" and ring.isHoldAction and kb.HoldPrompt.text.text == "Enter"
+	and not ring.holding, "the footer: A Type, and A with the press-and-hold ring for Enter")
+-- While held: the ring fills, and the Enter keys light up once it's long enough.
 held.PAD1 = true; secureClick(GamepadKeyboardAButton, true)
+check(ring.holding == 0.5, "A down on the keyboard: the ring fills over the hold")
 for _ = 1, 10 do poll() end
 check(not key("ENTER").locked, "(not lit while too short)")
 for _ = 1, 30 do poll() end
 check(key("ENTER").locked, "held long enough: the Enter key lights up (letting go sends)")
 held.PAD1 = nil; secureClick(GamepadKeyboardAButton, false); poll()
-check(macros[#macros] == "/s Oka" and not kb:IsShown() and not key("ENTER").locked, "...letting go sends, the light goes out")
+check(macros[#macros] == "/s Oka" and not kb:IsShown() and not key("ENTER").locked and not ring.holding, "...letting go sends, the light and the ring go out")
 poll()
 -- The D-pad still on a key the page switch hid: a tap does nothing.
 openChat("SAY"); poll()
@@ -522,6 +527,7 @@ kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFra
 openChat("SAY"); poll()
 held.PAD1 = true; secureClick(GamepadKeyboardAButton, true); poll()
 kb:SmartNavigationCloseHandler(); held.PAD1 = nil; chatBox.text = ""; manager:FrameHidden(chatFrame)
+check(not ring.holding, "closed while A is held: the ring stops")
 for _ = 1, 40 do poll() end
 openChat("SAY"); poll(); poll()
 check(not key("ENTER").locked, "closed while A is held: not a hold the next time it opens")
@@ -902,6 +908,7 @@ for _, f in ipairs(W.frames) do
 	if f == kb or f.parent == kb then for _, k in ipairs(unsafe) do if rawget(f, k) ~= nil then found[#found + 1] = k end end end
 end
 check(#found == 0, "no unbarriered Blizzard gamepad fields on our frames (" .. table.concat(found, ", ") .. ")")
+check(#W.violations == 0, "nothing done that Blizzard's widgets refuse (" .. table.concat(W.violations, ", ") .. ")")
 check(#poisoned == 0, "no chat send function was ever called")
 
 H.finish()
