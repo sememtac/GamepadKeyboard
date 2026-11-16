@@ -20,6 +20,12 @@ Enum = { InputDeviceInterfaceType = { Mkb = 0, Gamepad = 1 } }
 local style = 1
 C_InputInterfaceStyle = { GetCurrentStyle = function() return style end }
 function GetCurrentKeyBoardFocus() return W.focused end
+function hooksecurefunc(t, k, fn)
+	if type(t) == "string" then t, k, fn = _G, t, k end
+	local orig = assert(t[k], "hooksecurefunc: no " .. tostring(k))
+	t[k] = function(...) local r = { orig(...) }; fn(...); return unpack(r) end
+end
+NUM_CHAT_WINDOWS = 1
 local function poll() W.update(0.016) end
 
 -- Blizzard's focus manager: popups return focus to the frame they opened over; focusing a frame unfocuses
@@ -78,11 +84,13 @@ chatBox.chatType, chatBox.stickyType = "SAY", "SAY"
 chatBox.scripts.OnEditFocusLost = function(self)
 	if self:GetText() == "" then self.chatType, self.tellTarget, self.deactivated = self.stickyType, nil, true end
 end
+chatFrame.editBox = chatBox
 function chatFrame:FocusGamepad() chatBox:SetFocus() end
 function chatFrame:UnfocusGamepad() chatBox:ClearFocus() end
+function chatFrame:SetGamepadFocus() GamepadMode.FrameControlsManager:FrameShown(self) end -- the menu dial's Chat
 local function openChat(chatType, tellTarget)
 	chatBox.chatType, chatBox.tellTarget, chatBox.deactivated = chatType, tellTarget, nil
-	manager:FrameShown(chatFrame) -- what chatFrame:SetGamepadFocus() does
+	chatFrame:SetGamepadFocus()
 end
 local poisoned = {}
 local function poison(name) return function() poisoned[#poisoned + 1] = name; error(name .. " must not be called by the keyboard") end end
@@ -112,6 +120,8 @@ local function type(s) for c in s:gmatch(".") do playerClick(key(c == " " and "S
 -- ---- chat: a whisper reply ----------------------------------------------------------------------------------
 openChat("WHISPER", "Bob"); poll()
 local kb = keyboard()
+check(kb and kb.point and kb.point[1] == "BOTTOMLEFT" and kb.point[2] == chatFrame and kb.point[3] == "BOTTOMRIGHT",
+	"for chat it opens beside the chat window, not over it")
 check(kb and kb:IsShown(), "chat box focused with the controller: the keyboard opens")
 check(indexOf(kb) ~= nil and manager.focusedFrame == kb and manager.popupReturnFrames[kb] == chatFrame,
 	"as a popup in Blizzard's gamepad UI, returning to the chat")
@@ -129,6 +139,12 @@ check(manager.focusedFrame == chatFrame and chatBox:HasFocus() and chatBox:GetTe
 poll(); poll()
 check(not kb:IsShown(), "it doesn't open again for the box it went back to")
 check(#poisoned == 0, "the keyboard never called a chat send function")
+-- Back on the chat box, choosing Chat on the menu dial again (the chat is already the focused panel, so
+-- nothing changes focus): the keyboard comes back.
+chatFrame:SetGamepadFocus(); poll()
+check(kb:IsShown() and chatBox:GetText() == "Hi ther", "Chat chosen again while back on the chat box: the keyboard comes back, with the text")
+playerClick(key("DONE"))
+check(not kb:IsShown() and chatBox:HasFocus(), "...and goes back again")
 -- The player sends (Blizzard's A), the chat closes; the next chat opens the keyboard again.
 chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 openChat("SAY"); poll()
@@ -174,9 +190,28 @@ playerClick(key("DONE"))
 check(manager.focusedFrame == panel and nameBox:GetText() == "Totem", "Done: back to the window, the text stays")
 poll(); poll()
 check(not kb:IsShown(), "it doesn't open again while the box still has focus")
+nameBox:SetFocus(); poll() -- A on the name box again: it still has focus
+check(kb:IsShown(), "A on the box again (it never lost focus): the keyboard comes back")
+playerClick(key("DONE"))
 nameBox:ClearFocus(); poll(); nameBox:SetFocus(); poll()
 check(kb:IsShown(), "focusing the box again later opens it again")
 kb:Hide(); nameBox:ClearFocus(); poll()
+
+-- ---- dragging it somewhere else -------------------------------------------------------------------------------
+openChat("SAY"); poll()
+check(kb.movable and kb.drag and kb.drag[1] == "LeftButton" and kb.scripts.OnDragStart ~= nil, "it can be dragged with the mouse")
+kb.scripts.OnDragStart(kb)
+kb:ClearAllPoints(); kb:SetPoint("CENTER", UIParent, "CENTER", 250, 120) -- where the game leaves it after the drag
+kb.scripts.OnDragStop(kb)
+check(not kb.moving and GamepadKeyboardDB.position and GamepadKeyboardDB.position.x == 250, "the dragged spot is saved")
+kb:Hide(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+openChat("SAY"); poll()
+check(kb.point[1] == "CENTER" and kb.point[2] == UIParent and kb.point[4] == 250 and kb.point[5] == 120, "next time it opens where it was dragged")
+kb:Hide(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+SlashCmdList.GAMEPADKEYBOARD("reset")
+openChat("SAY"); poll()
+check(GamepadKeyboardDB.position == nil and kb.point[2] == chatFrame, "/gk reset: back beside the chat window")
+kb:Hide(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 
 -- ---- the D-pad ---------------------------------------------------------------------------------------------------
 for _, f in ipairs(W.frames) do

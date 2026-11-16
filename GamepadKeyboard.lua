@@ -52,6 +52,7 @@ local isChat = false;
 local text = "";
 local shift = false;
 local handedBack; -- the box the keyboard just went back to: not opened for again until focus moves on
+local closing = false; -- while closing hands the controller back (which focuses the box again)
 
 local function DB()
 	GamepadKeyboardDB = GamepadKeyboardDB or {};
@@ -320,6 +321,15 @@ local function CreateKeyboard()
 	keyboard:SetFrameStrata("FULLSCREEN_DIALOG");
 	keyboard:SetClampedToScreen(true);
 	keyboard:EnableMouse(true);
+	-- Drag it with the mouse; it opens there from then on (/gk reset forgets it).
+	keyboard:SetMovable(true);
+	keyboard:RegisterForDrag("LeftButton");
+	keyboard:SetScript("OnDragStart", keyboard.StartMoving);
+	keyboard:SetScript("OnDragStop", function(self)
+		self:StopMovingOrSizing();
+		local point, _, relativePoint, x, y = self:GetPoint();
+		DB().position = { point = point, relativePoint = relativePoint, x = x, y = y };
+	end);
 	keyboard:Hide();
 	tinsert(UISpecialFrames, "GamepadKeyboardFrame");
 
@@ -375,21 +385,34 @@ local function CreateKeyboard()
 		Register();
 		RefreshNavigation();
 	end);
-	-- However it closes (Done, B, Escape, combat): back to the window the box belongs to, and the box isn't
-	-- opened for again until focus moves elsewhere. An untouched chat box loses its placeholder.
+	-- However it closes (Done, B, Escape, combat): back to the window the box belongs to, which focuses the
+	-- box again - not a request for the keyboard - and the box isn't opened for again until focus moves
+	-- elsewhere or it's asked for again. An untouched chat box loses its placeholder.
 	keyboard:SetScript("OnHide", function()
 		if isChat and target and target:GetText() == PLACEHOLDER then
 			target:SetText("");
 		end
 		handedBack = target;
+		closing = true;
 		Unregister();
+		closing = false;
 		target = nil;
 	end);
 end
 
--- Above the text box if it's in the lower half of the screen, else below it.
+-- Where it was dragged to; else for chat beside the chat window, not over it; else above the text box if
+-- it's in the lower half of the screen, below it if not.
 local function Position(box)
 	keyboard:ClearAllPoints();
+	local saved = DB().position;
+	if saved then
+		keyboard:SetPoint(saved.point, UIParent, saved.relativePoint, saved.x, saved.y);
+		return;
+	end
+	if box.chatFrame then
+		keyboard:SetPoint("BOTTOMLEFT", box.chatFrame, "BOTTOMRIGHT", 24, 0);
+		return;
+	end
 	local _, y = box:GetCenter();
 	local screenHeight = UIParent:GetHeight();
 	if y and screenHeight and screenHeight > 0 and y > screenHeight / 2 then
@@ -433,6 +456,26 @@ end
 -- Watching for text boxes, combat
 -------------------------------------------------------------------------------
 
+-- Asked for again on a box that already has focus (A on a name box again, Chat chosen again on the menu
+-- dial): no focus change to watch, so these are hooked. Not while closing, which focuses the box itself.
+local function Requested(box)
+	if closing or not (box and box:HasFocus()) then
+		return;
+	end
+	if ShouldOpen(box) then
+		Open(box);
+	end
+end
+hooksecurefunc(getmetatable(CreateFrame("EditBox")).__index, "SetFocus", Requested);
+for index = 1, NUM_CHAT_WINDOWS or 10 do
+	local chatFrame = _G["ChatFrame" .. index];
+	if chatFrame and chatFrame.SetGamepadFocus then
+		hooksecurefunc(chatFrame, "SetGamepadFocus", function(self)
+			Requested(self.editBox);
+		end);
+	end
+end
+
 -- One check per frame: the keyboard opens when typing focus moves to a text box.
 local lastFocus;
 local watcher = CreateFrame("Frame");
@@ -463,11 +506,14 @@ SLASH_GAMEPADKEYBOARD1 = "/gk";
 SLASH_GAMEPADKEYBOARD2 = "/gamepadkeyboard";
 SlashCmdList.GAMEPADKEYBOARD = function(message)
 	message = strtrim(message or ""):lower();
-	if message == "on" or message == "off" then
+	if message == "reset" then
+		DB().position = nil;
+		Print("back to its usual place.");
+	elseif message == "on" or message == "off" then
 		DB().autoOpen = message == "on";
 		Print(message == "on" and "opens when a text box gets focus with the controller."
 			or "off - type with a keyboard; /gk on turns it back on.");
 	else
-		Print(("%s. /gk on | off."):format(DB().autoOpen ~= false and "On" or "Off"));
+		Print(("%s. /gk on | off, /gk reset puts it back in its usual place."):format(DB().autoOpen ~= false and "On" or "Off"));
 	end
 end;

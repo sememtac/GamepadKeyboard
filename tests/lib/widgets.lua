@@ -17,6 +17,7 @@ end
 local Region = {}
 function Region:SetPoint(...) self.point = { ... }; self.points = self.points or {}; self.points[#self.points + 1] = self.point end
 function Region:ClearAllPoints() self.point = nil; self.points = {} end
+function Region:GetPoint() if self.point then return unpack(self.point) end end
 function Region:SetAllPoints(target) self.point = { "ALL", target } end
 function Region:SetSize(w, h) self.width, self.height = w, h end
 function Region:SetWidth(w) self.width = w end
