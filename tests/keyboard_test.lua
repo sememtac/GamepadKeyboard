@@ -83,6 +83,7 @@ end
 local chatFrame = W.CreateFrame("Frame", "ChatFrame1", UIParent)
 local chatBox = W.CreateFrame("EditBox", "ChatFrame1EditBox", chatFrame)
 chatBox.chatFrame = chatFrame
+chatBox.autoFocus = false -- ChatFrameEditBoxTemplate
 chatBox.center = { 300, 200 }
 chatBox.attrs.chatType, chatBox.attrs.stickyType = "SAY", "SAY"
 chatBox.scripts.OnEditFocusLost = function(self)
@@ -189,6 +190,8 @@ function menuDialChat() menuDial(function() chatFrame:SetGamepadFocus() end) end
 -- ---- load ---------------------------------------------------------------------------------------------
 H.loadAddon({})
 check(SlashCmdList.GAMEPADKEYBOARD ~= nil and SLASH_GAMEPADKEYBOARD1 == "/gk", "/gk")
+poll(); poll()
+check(W.focused == nil, "loading takes no typing focus (a text box of ours shown with auto-focus would keep every key)")
 
 local function keyboard() return GamepadKeyboardFrame end
 local function key(k)
@@ -364,7 +367,7 @@ held.PADBACK = true; DEFAULT_BINDINGS.ENTER(); poll(); held.PADBACK = nil; poll(
 check(kb:IsShown(), "chat opened by a controller button bound to Open Chat: it opens")
 kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 -- A ctrl-click on an item that puts focus in some addon's box (a link to copy, say).
-local copyBox = W.CreateFrame("EditBox", nil, UIParent)
+local copyBox = W.CreateFrame("EditBox", nil, UIParent); copyBox:SetAutoFocus(false)
 keyboardKey("LCTRL")
 mouseClick(function() copyBox:SetFocus() end)
 check(copyBox:HasFocus() and not kb:IsShown(), "a mouse click that puts focus in a box: no on-screen keyboard")
@@ -440,7 +443,7 @@ openChat("SAY"); poll()
 check(not kb:IsShown(), "keyboard and mouse: doesn't open")
 style = 1
 chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
-local secret = W.CreateFrame("EditBox", nil, UIParent); secret.forbidden = true
+local secret = W.CreateFrame("EditBox", nil, UIParent); secret.forbidden = true; secret:SetAutoFocus(false)
 padA(function() secret:SetFocus() end)
 check(not kb:IsShown(), "a forbidden box (Blizzard's store and such): doesn't open")
 secret:ClearFocus(); poll()

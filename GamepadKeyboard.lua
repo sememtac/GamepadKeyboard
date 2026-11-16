@@ -17,8 +17,9 @@
 -- Whichever the player is using has the text box. The keyboard opens only when the controller asked for it
 -- (A on a text box, Chat on the menu dial) - not when a real keyboard opened the chat (Enter, /, reply) or
 -- a mouse click put focus in some box. And when a real keyboard or the mouse takes the chat box back while
--- it's open, it steps aside. Keys are only ever looked at (IsKeyDown), never listened to: in this client
--- addon code can't pass a key on (SetPropagateKeyboardInput is restricted), so a listening frame keeps them.
+-- it's open, it steps aside. Keys are only ever looked at (IsKeyDown), never listened to: a
+-- listening frame keeps every key it isn't allowed to pass on, and SetPropagateKeyboardInput is restricted
+-- (in combat at least).
 --
 -- In combat Blizzard's gamepad UI takes no addon windows, so the keyboard doesn't open (a real keyboard
 -- types as always), and an open one closes when combat starts; the text stays in the box.
@@ -631,7 +632,20 @@ local function Requested(box)
 		Open(box);
 	end
 end
-hooksecurefunc(getmetatable(CreateFrame("EditBox")).__index, "SetFocus", Requested);
+-- Every text box shares one method table; Blizzard's chat box (made hidden, auto-focus off) gives it. A text
+-- box made here would be shown with auto-focus on, as CreateFrame makes them, and take the real keyboard at
+-- login: every key into an invisible box.
+local function EditBoxMethods()
+	local box = ChatFrame1EditBox;
+	if not box then
+		local holder = CreateFrame("Frame");
+		holder:Hide();
+		box = CreateFrame("EditBox", nil, holder); -- never shown, so never focused
+		box:SetAutoFocus(false);
+	end
+	return getmetatable(box).__index;
+end
+hooksecurefunc(EditBoxMethods(), "SetFocus", Requested);
 for index = 1, NUM_CHAT_WINDOWS or 10 do
 	local chatFrame = _G["ChatFrame" .. index];
 	if chatFrame and chatFrame.SetGamepadFocus then

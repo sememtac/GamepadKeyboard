@@ -98,8 +98,8 @@ function Frame:SetFrameLevel(v) self.level = v end
 function Frame:GetFrameLevel() return self.level or 1 end
 function Frame:EnableMouse(v) self.mouse = v end
 function Frame:EnableKeyboard(v) self.keyboardEnabled = v end
--- Restricted in Forever (HasRestrictions): addon code is refused, so a frame it lets hear keys keeps every
--- key (off until set). Only the addon calls it here.
+-- Restricted in Forever (HasRestrictions; in combat at least). Treated as refused to addon code, the worst
+-- case: a frame it lets hear keys keeps every key (off until set). Only the addon calls it here.
 function Frame:SetPropagateKeyboardInput(v)
 	W.blockedMessages = (W.blockedMessages or 0) + 1
 end
@@ -144,7 +144,7 @@ function EditBox:SetText(t)
 	if self.scripts.OnTextChanged then self.scripts.OnTextChanged(self, false) end
 end
 function EditBox:GetText() return self.text or "" end
-function EditBox:SetAutoFocus(v) self.autoFocus = v end
+function EditBox:SetAutoFocus(v) self.autoFocus = v end -- on unless turned off, as CreateFrame makes them
 function EditBox:SetMaxLetters(n) self.maxLetters = n end
 function EditBox:GetMaxLetters() return self.maxLetters or 0 end
 function EditBox:IsNumeric() return self.numeric == true end
@@ -189,7 +189,7 @@ W.hasTemplate = hasTemplate
 function W.CreateFrame(kind, name, parent, template)
 	local class = kind
 	if hasTemplate(template, "UICheckButtonTemplate") then kind, class = "CheckButton", "CheckButton" end
-	if hasTemplate(template, "InputBoxTemplate") then kind, class = "EditBox", "EditBox" end
+	if hasTemplate(template, "InputBoxTemplate") then kind, class = "EditBox", "EditBox" end -- autoFocus="false"
 	if hasTemplate(template, "InputIconTextureFrameTemplate") then class = "InputIcon" end
 	assert(CLASSES[class] or class == "Frame", "CreateFrame: unsupported type " .. tostring(kind))
 	local f = new(kind, parent, class)
@@ -217,6 +217,7 @@ function W.CreateFrame(kind, name, parent, template)
 		glow.OnLoad = function(self) self.loadedWithLayout = rawget(f, "layoutType") end
 		f.FrameGlow = glow
 	end
+	if class == "EditBox" and hasTemplate(template, "InputBoxTemplate") then f.autoFocus = false end
 	if name then _G[name] = f end
 	W.frames[#W.frames + 1] = f
 	return f
@@ -229,8 +230,15 @@ function W.fireEvent(event, ...)
 	end
 end
 
--- One frame: OnUpdate on every visible frame.
+-- One frame: a text box shown with auto-focus on takes the keyboard (once per showing), then OnUpdate on
+-- every visible frame.
 function W.update(elapsed)
+	for _, f in ipairs(W.frames) do
+		if f.kind == "EditBox" and f.autoFocus ~= false and f:IsVisible() and not f.autoFocused then
+			f.autoFocused = true
+			f:SetFocus()
+		end
+	end
 	for _, f in ipairs(W.frames) do
 		if f.scripts and f.scripts.OnUpdate and f:IsVisible() then f.scripts.OnUpdate(f, elapsed or 0.016) end
 	end

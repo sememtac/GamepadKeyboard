@@ -55,9 +55,11 @@ checks them) or was what the player pressed last. A real keyboard is seen only b
 the box takes focus (`IsKeyDown` on the keys bound to Open Chat, Open Chat Slash and the two replies, not
 the controller's); the mouse by `GLOBAL_MOUSE_DOWN`.
 
-Keys are only ever looked at, never listened to. In Forever `SetPropagateKeyboardInput` is restricted for
-addon code, so a frame of ours with `EnableKeyboard(true)` would keep every key (0.4 did, and broke the
-real keyboard). Open over chat, the chat box has no typing focus; when it gets it back (Blizzard's Enter
+Keys are only ever looked at, never listened to: a frame with `EnableKeyboard(true)` keeps every key it
+isn't allowed to pass on, and `SetPropagateKeyboardInput` is restricted in Forever (in combat at least).
+Text-box focus is hooked on the method table all text boxes share, taken from Blizzard's chat box: a text
+box made with `CreateFrame` is shown with auto-focus on and takes the real keyboard at login (0.2 to 0.4.1
+did that, so after a reload no key worked until something else took focus). Open over chat, the chat box has no typing focus; when it gets it back (Blizzard's Enter
 binding is `OpenChat(nil)`, which keeps the text), the keyboard closes. It reads the box before each key,
 so text typed into a box that kept focus is carried on, not overwritten. The keyboard is a popup in Blizzard's gamepad UI
 (`HandlePopupShown` / `HandlePopupHide`, the functions it wraps for addons), so closing it returns the
@@ -76,12 +78,12 @@ secure, the keyboard is a protected frame; it only opens out of combat and close
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 84 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 85 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
 focus, the menu dial's button already up), and real-keyboard keys delivered as the game delivers them
 (focused box first, then key listeners from the top strata down, then bindings), with
-`SetPropagateKeyboardInput` refused to addon code as in Forever. Only the game can confirm:
+`SetPropagateKeyboardInput` refused to addon code and auto-focus text boxes taking focus when shown. Only the game can confirm:
 
 - [ ] Chat (from the menu dial's Chat, or the chat binding): the keyboard opens; A on a key types into the
       chat box.
