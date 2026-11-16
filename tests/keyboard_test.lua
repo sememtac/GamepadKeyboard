@@ -155,6 +155,12 @@ chatBox.scripts.OnTextChanged = function(self)
 	elseif command == "/R" and lastTell then
 		self.attrs.chatType, self.attrs.tellTarget = lastTellType, lastTell
 		self:SetText(msg)
+	elseif command == "/W" then
+		local name, rest = msg:match("^(%S+)%s(.*)$")
+		if name then
+			self.attrs.chatType, self.attrs.tellTarget = "WHISPER", name
+			self:SetText(rest)
+		end
 	end
 end
 chatFrame.editBox = chatBox
@@ -165,6 +171,8 @@ function chatBox:UpdateHeader() self.header = self.attrs.chatType .. ":" .. tost
 function chatFrame:FocusGamepad() chatBox:SetFocus() end
 function chatFrame:UnfocusGamepad() chatBox:ClearFocus() end
 function chatFrame:SetGamepadFocus() GamepadMode.FrameControlsManager:FrameShown(self) end -- the menu dial's Chat
+-- A menu's Whisper (ChatFrameUtil.SendTellWithMessage): "/w Name " into the chat box, parsed (it ends empty).
+local function blizzardSendTell(name) chatBox:SetText("/w " .. name .. " ") end
 local menuDialChat -- set below
 local function openChat(chatType, tellTarget, channelTarget)
 	chatBox.attrs.chatType, chatBox.attrs.tellTarget, chatBox.attrs.channelTarget, chatBox.deactivated = chatType, tellTarget, channelTarget, nil
@@ -434,7 +442,8 @@ check(macros[#macros] == "/p Pull" and chatBox.attrs.stickyType == "PARTY", "par
 poll()
 openChat("SAY"); poll()
 playerClick(key("SYMBOLS")); playerClick(key("/")); playerClick(key("LETTERS")); type("p ")
-check(chatBox:GetText() == "" and preview() == CARET, "the preview shows what the box made of /p (party chat, nothing typed yet)")
+check(chatBox:GetText() == " " and preview() == CARET,
+	"the preview shows what the box made of /p (party chat, nothing typed yet; the emptied box has its placeholder back)")
 type("hi")
 check(chatBox.attrs.chatType == "PARTY" and chatBox:GetText() == "hi" and preview() == "hi" .. CARET, "typing /p and a space switches to party, as typing does")
 playerClick(key("ENTER"))
@@ -811,6 +820,34 @@ check(not kb:IsShown() and macros[#macros] == "/s Abb", "...a 1.1 s one is Enter
 GamepadKeyboardDB.holdTime = nil
 poll()
 
+-- ---- a whisper started from a menu while the keyboard is up ------------------------------------------------------
+openChat("SAY"); poll()
+check(chatBox:GetText() == " ", "(the keyboard over chat, the placeholder in the box)")
+padA(function() focus(chatFrame) end) -- LT to the chat window
+check(kb:IsShown() and chatBox:HasFocus(), "LT to the chat window: the keyboard stays (it's the controller, not a real keyboard)")
+padA(function() blizzardSendTell("Alice") end) -- Whisper, from the chat's channels menu or a name's menu
+check(chatBox.attrs.chatType == "WHISPER" and chatBox.attrs.tellTarget == "Alice", "(a whisper to Alice started)")
+poll()
+check(chatBox:GetText() == " ", "the whisper left the chat box empty: the placeholder goes back in")
+padA(function() focus(kb) end) -- LT back to the keyboard: the chat box loses typing focus
+check(not chatBox.deactivated and chatBox.attrs.chatType == "WHISPER" and chatBox.attrs.tellTarget == "Alice" and key("CHAT").text == "To Alice",
+	"LT back to the keyboard: the chat stays open, still to Alice")
+type("hi")
+playerClick(key("ENTER"))
+check(macros[#macros] == "/w Alice Hi", "...and what's typed goes to her (" .. tostring(macros[#macros]) .. ")")
+poll()
+-- The whisper started with the keyboard closed (with the mouse, say), the keyboard brought up after.
+chatBox.attrs.chatType, chatBox.deactivated = "SAY", nil
+mouseClick(function() chatFrame:SetGamepadFocus() end)
+blizzardSendTell("Bob")
+check(chatBox:HasFocus() and not kb:IsShown() and chatBox.attrs.tellTarget == "Bob" and chatBox:GetText() == "", "(a whisper to Bob, chat open, no keyboard)")
+menuDialChat(); poll()
+check(kb:IsShown() and chatBox:GetText() == " " and chatBox.attrs.chatType == "WHISPER" and not chatBox.deactivated,
+	"Chat on the menu dial then: the keyboard comes, still to Bob")
+type("yo"); playerClick(key("ENTER"))
+check(macros[#macros] == "/w Bob Yo", "...and it goes to him")
+poll()
+
 -- ---- the chat key ------------------------------------------------------------------------------------------------
 openChat("SAY"); poll()
 local chatKey = key("CHAT")
@@ -845,8 +882,8 @@ kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFra
 world.raid, world.instance = false, false
 openChat("SAY"); poll()
 playerClick(key("CHAT"))
-check(chatBox.attrs.chatType == "PARTY" and chatBox:GetText() == "" and preview() == CARET and key("SHIFT").locked,
-	"with nothing typed yet: switched, still nothing typed, Shift still on")
+check(chatBox.attrs.chatType == "PARTY" and chatBox:GetText() == " " and preview() == CARET and key("SHIFT").locked,
+	"with nothing typed yet: switched, still nothing typed (the placeholder back), Shift still on")
 type("go")
 playerClick(key("ENTER"))
 check(macros[#macros] == "/p Go", "...and what's typed then goes there")

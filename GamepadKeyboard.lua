@@ -371,6 +371,25 @@ end
 -- around the cursor.
 local LINE_FORMAT = "|cff808080   line %d of %d|r";
 
+-- The chat key follows the chat (its label), and a whisper the chat is in is remembered - when the keyboard
+-- changes it, and each frame for a change from elsewhere (a menu's Whisper).
+local function UpdateChatKey()
+	if not (isChat and target) then
+		return;
+	end
+	local label = ChatLabel(target);
+	for _, chatKey in ipairs(keyboard.ChatKeys) do
+		if chatKey:GetText() ~= label then
+			chatKey:SetText(label);
+		end
+	end
+	-- A whisper to someone other than whoever whispered last (they're the reply, always offered).
+	local chatType, tellTarget = target:GetAttribute("chatType"), target:GetAttribute("tellTarget");
+	if IsWhisper(chatType) and tellTarget and tellTarget ~= LastTell() then
+		whisperedTo = { chatType = chatType, target = tellTarget };
+	end
+end
+
 local function UpdatePreview()
 	local before, after = Split(text, cursor);
 	local lineBefore, lineAfter = before:match("[^\n]*$"), after:match("^[^\n]*");
@@ -385,16 +404,7 @@ local function UpdatePreview()
 		shown = shown .. LINE_FORMAT:format(line + 1, lines + 1);
 	end
 	keyboard.Preview:SetText(shown);
-	if isChat and target then
-		for _, chatKey in ipairs(keyboard.ChatKeys) do
-			chatKey:SetText(ChatLabel(target));
-		end
-		-- A whisper to someone other than whoever whispered last (they're the reply, always offered).
-		local chatType, tellTarget = target:GetAttribute("chatType"), target:GetAttribute("tellTarget");
-		if IsWhisper(chatType) and tellTarget and tellTarget ~= LastTell() then
-			whisperedTo = { chatType = chatType, target = tellTarget };
-		end
-	end
+	UpdateChatKey();
 	UpdateSuggestions();
 end
 
@@ -1313,11 +1323,18 @@ watcher:SetScript("OnUpdate", function()
 	if keyboard and keyboard:IsShown() and target and not target:IsVisible() then
 		Close();
 	end
-	-- Open over chat, the chat box has no typing focus (the controller is here). Getting it back means a
-	-- real keyboard (Enter, /) or the mouse took the chat: this keyboard steps aside, the text stays.
 	if keyboard and keyboard:IsShown() and isChat and target then
+		-- Over chat, the chat box is never left empty: Blizzard closes an empty chat box that loses typing
+		-- focus and resets its chat type - and starting a whisper ("/w Name ", from a menu) empties it.
+		if target:GetText() == "" then
+			target:SetText(PLACEHOLDER);
+		end
+		UpdateChatKey();
+		-- The chat box has no typing focus while the controller is on the keyboard. Getting it back from a real
+		-- keyboard (Enter, /) or the mouse: this keyboard steps aside, the text stays. From the controller (LT
+		-- to the chat window): it stays.
 		local hasFocus = target:HasFocus();
-		if chatHadFocus == false and hasFocus then
+		if chatHadFocus == false and hasFocus and not ControllerAsked() then
 			Close();
 		end
 		chatHadFocus = hasFocus;

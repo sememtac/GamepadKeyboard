@@ -107,6 +107,8 @@ Whichever you're using has the text box:
 - **Another text box in the same window** (the mail's Subject:): LT / RT to the window, D-pad to the box,
   A on it - the keyboard types there from then on; LT / RT back to the keyboard. A real keyboard or a
   mouse click in another box makes it step aside instead.
+- **A whisper started from a menu** (a name's Whisper, the chat's channels) while the keyboard is up: LT /
+  RT between the chat window and the keyboard keeps the chat to that person, and the chat key shows it.
 - **No names showing** in a box that should have them: type a few letters in it with the keyboard, then
   `/gk names` says what the game's name lookup finds for it (or why it doesn't run).
 - **Bringing it back** after going back to a text box (or after the real keyboard took over): A on the box
@@ -173,7 +175,7 @@ multiplied by its scale when kept and divided when used - so it stays put at any
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 224 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 233 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
 focus, the menu dial's button already up), and real-keyboard keys delivered as the game delivers them
