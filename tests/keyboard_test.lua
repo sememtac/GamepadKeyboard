@@ -34,7 +34,9 @@ end
 function IsInRaid() return world.raid end
 function IsInGuild() return world.guild end
 local lastTell, lastTellType -- whoever whispered last
-local function poll() W.update(0.016) end
+world.time = 0
+function GetTime() return world.time end
+local function poll() world.time = world.time + 0.016; W.update(0.016) end
 local held = {} -- keys and controller buttons held down
 function IsKeyDown(k) return held[k] == true end
 local BOUND = { OPENCHAT = { "ENTER", "PADBACK" }, OPENCHATSLASH = { "/" }, REPLY = { "R" }, REPLY2 = { "CTRL-T" } }
@@ -103,7 +105,8 @@ function manager:HandlePopupHide(popup)
 	self:FrameHidden(popup)
 end
 GamepadMode = { FrameControlsManager = manager }
-SmartNavigation = { RefreshButtonGroups = function() end }
+local navCurrent -- the key the D-pad is on
+SmartNavigation = { RefreshButtonGroups = function() end, GetCurrentButton = function() return navCurrent end }
 SMART_NAV_INPUT_DIRECTION = { UP = { dirKey = "up" }, DOWN = { dirKey = "down" }, LEFT = { dirKey = "left" }, RIGHT = { dirKey = "right" } }
 local overrides = {}
 function SmartNavigation_AddJumpNavigationOverride(button, direction, target)
@@ -163,23 +166,47 @@ C_ChatInfo = { SendChatMessage = poison("C_ChatInfo.SendChatMessage") }
 -- A player's A on a key (SmartNavigation clicks it) or a mouse click.
 -- Frames pass between presses, as in the game (the focus watcher runs every frame).
 local macros = {}
--- SecureActionButton_OnClick: PreClick, the action on release (useOnKeyDown off), PostClick.
-local function secureClick(button)
+-- A secure button's click on a press (down) or release, if it's registered for it: PreClick, the action
+-- on the edge useOnKeyDown picks (SecureActionButton_OnClick: off - the release), PostClick.
+local function secureClick(button, down)
+	down = down or false
 	assert(button.OnSmartNavClick == nil and button.scripts.OnClick == nil, "the secure OnClick must stay Blizzard's")
-	if button.scripts.PreClick then button.scripts.PreClick(button, "LeftButton", false) end
-	if button.attrs.useOnKeyDown == false and button.clicks[1] == "AnyUp" and button.attrs.type == "macro" and button.attrs.macrotext ~= "" then
+	local registered = false
+	for _, c in ipairs(button.clicks or {}) do if c == (down and "AnyDown" or "AnyUp") then registered = true end end
+	if not registered then return end
+	if button.scripts.PreClick then button.scripts.PreClick(button, "LeftButton", down) end
+	if down == (button.attrs.useOnKeyDown == true) and button.attrs.type == "macro" and button.attrs.macrotext ~= "" then
 		macros[#macros + 1] = button.attrs.macrotext -- C_Macro.RunMacroText, securely
 	end
-	if button.scripts.PostClick then button.scripts.PostClick(button, "LeftButton", false) end
+	if button.scripts.PostClick then button.scripts.PostClick(button, "LeftButton", down) end
+end
+local function isSecure(button) return W.hasTemplate(button.template, "SecureActionButtonTemplate") end
+-- The controller's A, held this long, on the key the D-pad is on: through what A is bound to - a binding's
+-- click on the press and on the release - or SmartNavigation's own A (clicks the key as A goes down).
+local function pressA(holdFor)
+	poll()
+	held.PAD1 = true
+	local command = boundTo("PAD1")
+	local name = command and command:match("^CLICK (.-):")
+	local bound = name and _G[name]
+	if bound then
+		if isSecure(bound) then secureClick(bound, true) end
+		local start = world.time
+		repeat poll() until world.time - start >= (holdFor or 0.016)
+		held.PAD1 = nil
+		if isSecure(bound) then secureClick(bound, false) else bound:Click() end
+	else
+		if isSecure(navCurrent) then secureClick(navCurrent, false) else navCurrent:Click() end
+		poll()
+		held.PAD1 = nil
+	end
+	poll()
 end
 local function playerClick(button)
 	poll()
 	assert(button and button:IsVisible() and button:IsEnabled(), "clicking a missing, hidden or disabled key")
-	held.PAD1 = true -- A
-	if W.hasTemplate(button.template, "SecureActionButtonTemplate") then secureClick(button) else button:Click() end
-	poll()
-	held.PAD1 = nil
-	poll()
+	navCurrent = button
+	pressA()
 end
 
 -- The controller: A while a text box takes focus (SmartNavigation clicks it); the menu dial, whose button
@@ -193,7 +220,7 @@ local function pad(k)
 	local name = command and command:match("^CLICK (.-):")
 	if name and _G[name] then
 		local button = _G[name]
-		if W.hasTemplate(button.template, "SecureActionButtonTemplate") then secureClick(button) else button:Click() end
+		if isSecure(button) then secureClick(button, true); secureClick(button, false) else button:Click() end
 	end
 	held[k] = nil
 	poll()
@@ -248,7 +275,7 @@ local function mouseClick(fn) poll(); W.fireEvent("GLOBAL_MOUSE_DOWN", "LeftButt
 
 function menuDialChat() menuDial(function() chatFrame:SetGamepadFocus() end) end
 
-for _, k in ipairs({ "PAD3", "PAD4", "PADLSHOULDER", "PADRSHOULDER" }) do SetOverrideBindingClick(UIParent, true, k, "Blizzard_" .. k) end
+for _, k in ipairs({ "PAD1", "PAD3", "PAD4", "PADLSHOULDER", "PADRSHOULDER" }) do SetOverrideBindingClick(UIParent, true, k, "Blizzard_" .. k) end
 
 -- ---- load ---------------------------------------------------------------------------------------------
 H.loadAddon({})
@@ -425,6 +452,65 @@ check(kb.Preview.text == long:sub(1, 10) .. CARET .. long:sub(11, 48) .. "...", 
 type("x")
 check(chatBox:GetText() == long:sub(1, 10) .. "X" .. long:sub(11), "(typed at the cursor in a long line)")
 kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+
+-- ---- holding A: Enter ---------------------------------------------------------------------------------------------
+openChat("PARTY"); poll()
+check(boundTo("PAD1") == "CLICK GamepadKeyboardAButton:LeftButton", "with the keyboard open, A is the keyboard's (a tap types, a hold sends)")
+type("hold")
+check(chatBox:GetText() == "Hold", "(a tap types the key the D-pad is on, as A did)")
+navCurrent = key("k")
+pressA(0.6)
+check(macros[#macros] == "/p Hold" and not kb:IsShown() and indexOf(chatFrame) == nil and chatBox:GetText() == "",
+	"holding A on any key is Enter: sent, the chat closed, nothing typed")
+check(boundTo("PAD1") == "CLICK Blizzard_PAD1:LeftButton", "...and A is the controller UI's again")
+poll()
+before = #macros
+openChat("SAY"); poll()
+type("ok")
+navCurrent = key("a")
+pressA(0.3)
+check(#macros == before and chatBox:GetText() == "Oka" and kb:IsShown(), "a press shorter than the hold: a tap")
+-- While held: the Enter keys light up once it's long enough.
+held.PAD1 = true; secureClick(GamepadKeyboardAButton, true)
+for _ = 1, 10 do poll() end
+check(not key("ENTER").locked, "(not lit while too short)")
+for _ = 1, 30 do poll() end
+check(key("ENTER").locked, "held long enough: the Enter key lights up (letting go sends)")
+held.PAD1 = nil; secureClick(GamepadKeyboardAButton, false); poll()
+check(macros[#macros] == "/s Oka" and not kb:IsShown() and not key("ENTER").locked, "...letting go sends, the light goes out")
+poll()
+-- The D-pad still on a key the page switch hid: a tap does nothing.
+openChat("SAY"); poll()
+local hiddenQ = key("q")
+playerClick(key("SYMBOLS"))
+navCurrent = hiddenQ
+pressA()
+check(kb.Preview.text == CARET and chatBox:GetText() == " " and kb:IsShown(), "a tap on a key that's hidden now (another page): nothing")
+playerClick(key("LETTERS"))
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+-- The release of an A whose press went to the controller UI (the A that opened the keyboard): nothing.
+openChat("SAY"); poll()
+type("x")
+secureClick(GamepadKeyboardAButton, false); poll()
+check(chatBox:GetText() == "X" and kb:IsShown() and #macros == before + 1, "a release without its press on the keyboard: nothing")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+openChat("SAY"); poll()
+held.PAD1 = true; secureClick(GamepadKeyboardAButton, true); poll()
+kb:SmartNavigationCloseHandler(); held.PAD1 = nil; chatBox.text = ""; manager:FrameHidden(chatFrame)
+for _ = 1, 40 do poll() end
+openChat("SAY"); poll(); poll()
+check(not key("ENTER").locked, "closed while A is held: not a hold the next time it opens")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+-- A name box: holding A is its own Enter.
+local holdBox = W.CreateFrame("EditBox", nil, panel or UIParent, "InputBoxTemplate")
+holdBox.center = { 500, 300 }
+local holdEntered = 0
+holdBox.scripts.OnEnterPressed = function(self) holdEntered = holdEntered + 1; self:ClearFocus() end
+padA(function() holdBox:SetFocus() end)
+type("ab")
+pressA(0.7)
+check(holdEntered == 1 and not kb:IsShown() and holdBox:GetText() == "ab", "in another text box, holding A is that box's Enter")
+holdBox:ClearFocus(); poll()
 
 -- ---- the chat key ------------------------------------------------------------------------------------------------
 openChat("SAY"); poll()
@@ -649,7 +735,8 @@ W.fireEvent("PLAYER_REGEN_DISABLED")
 world.combat = true
 poll()
 check(not kb:IsShown() and chatBox:GetText() == "Pull" and chatBox.attrs.chatType == "PARTY", "combat starts: the keyboard closes, the text and chat type stay")
-check((W.blockedMessages or 0) == 0 and boundTo("PAD4") == "CLICK Blizzard_PAD4:LeftButton", "...X / Y / LB / RB the controller UI's again, nothing blocked")
+check((W.blockedMessages or 0) == 0 and boundTo("PAD4") == "CLICK Blizzard_PAD4:LeftButton" and boundTo("PAD1") == "CLICK Blizzard_PAD1:LeftButton",
+	"...A / X / Y / LB / RB the controller UI's again, nothing blocked")
 before = #macros
 check(pcall(secureClick, enter) and #macros == before, "its Enter pressed in combat somehow: nothing set on it, nothing sent")
 world.combat = false

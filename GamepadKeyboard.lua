@@ -14,9 +14,11 @@
 -- controller off the chat box, which would close an empty box and reset its chat type (a whisper target,
 -- say); a single space put in first keeps it open. Enter in any other box runs that box's own Enter action.
 --
--- While it has the controller, X is Del, Y is Space, and LB / RB move the cursor left and right: override
--- bindings that click those keys, as the game's controller UI binds its own buttons. Keys type at the
--- cursor, which the preview shows.
+-- While it has the controller, X is Del, Y is Space, LB / RB move the cursor left and right, and holding A
+-- is Enter: override bindings that click those keys, as the game's controller UI binds its own buttons.
+-- A goes to a hidden secure button that hears the press and the release: a tap presses the key the D-pad
+-- is on (on release), a hold sends - a real press, so Enter's secure macro line runs as from the Enter key.
+-- Keys type at the cursor, which the preview shows.
 --
 -- For chat, a chat key steps through the chat types there are to use (Say, Party, Raid, Instance, Guild,
 -- a reply to the last whisper). It switches the way typing does: it puts the type's slash command before
@@ -540,6 +542,53 @@ local function EnterPostClick(button)
 	end
 end
 
+-- Holding A this long (seconds) is Enter.
+local HOLD_TO_ENTER = 0.5;
+local aDownAt; -- when A went down on the keyboard (nil when it isn't down)
+
+-- A, as a hidden secure button: on the press, the time; on the release, either Enter (held, or on the
+-- Enter key) - the Enter key's own PreClick / PostClick around Blizzard's secure macro action - or a tap on
+-- the key the D-pad is on (SmartNavigation's current button; its getter only reads).
+local function APreClick(button, _, down)
+	if InCombatLockdown() then
+		return;
+	end
+	if down then
+		aDownAt = GetTime();
+		button:SetAttribute("macrotext", "");
+		return;
+	end
+	local current = SmartNavigation and SmartNavigation.GetCurrentButton and SmartNavigation:GetCurrentButton();
+	local held = aDownAt and GetTime() - aDownAt >= HOLD_TO_ENTER;
+	if not aDownAt then
+		button.action = nil; -- a release whose press went elsewhere (A that opened the keyboard)
+	elseif held or (current and current.key == ENTER) then
+		button.action = "enter";
+	else
+		button.action = "tap";
+		button.tapped = current;
+	end
+	aDownAt = nil;
+	if button.action == "enter" then
+		EnterPreClick(button);
+	else
+		button:SetAttribute("macrotext", "");
+	end
+end
+
+local function APostClick(button, _, down)
+	if down or InCombatLockdown() then
+		return;
+	end
+	local action, tapped = button.action, button.tapped;
+	button.action, button.tapped = nil, nil;
+	if action == "enter" then
+		EnterPostClick(button);
+	elseif action == "tap" and tapped and tapped:IsVisible() and tapped:IsEnabled() then
+		tapped:Click();
+	end
+end
+
 -- The keys X and Y press (the first of each, on either page): a binding clicks a button by name.
 local SHORTCUT_KEYS = { [BACK] = "GamepadKeyboardDelKey", [SPACE] = "GamepadKeyboardSpaceKey" };
 local named = {};
@@ -573,12 +622,13 @@ local function CreateKey(key)
 	return button;
 end
 
--- X, Y, LB and RB while the keyboard has the controller. The controller UI binds its buttons the same way (priority
+-- A, X, Y, LB and RB while the keyboard has the controller. The controller UI binds its buttons the same way (priority
 -- override bindings, owner UIParent) and the latest binding of a button wins, so they're bound again when it
 -- binds one of these over them (seen by post-hooking the binding functions). Cleared as soon as the
 -- controller leaves the keyboard: the buttons are the controller UI's (and the crossbar's) again. Only out of combat (the
 -- keyboard is closed in combat).
 local SHORTCUTS = {
+	[GAMEPAD_FACE_BOTTOM or "PAD1"] = "GamepadKeyboardAButton",
 	[GAMEPAD_FACE_LEFT or "PAD3"] = SHORTCUT_KEYS[BACK],
 	[GAMEPAD_FACE_TOP or "PAD4"] = SHORTCUT_KEYS[SPACE],
 	[GAMEPAD_SHOULDER_LEFT or "PADLSHOULDER"] = "GamepadKeyboardCursorLeft",
@@ -612,6 +662,21 @@ local function UpdateShortcuts()
 		end
 	else
 		ClearShortcuts();
+	end
+end
+
+-- Held long enough: the Enter keys light up (letting go sends).
+local function UpdateHoldHint()
+	local lit = aDownAt ~= nil and GetTime() - aDownAt >= HOLD_TO_ENTER;
+	if keyboard and keyboard.EnterKeys and keyboard.holdLit ~= lit then
+		keyboard.holdLit = lit;
+		for _, enterKey in ipairs(keyboard.EnterKeys) do
+			if lit then
+				enterKey:LockHighlight();
+			else
+				enterKey:UnlockHighlight();
+			end
+		end
 	end
 end
 
@@ -665,6 +730,7 @@ local function CreateKeyboard()
 	keyboard.Preview:SetJustifyH("LEFT");
 
 	keyboard.ChatKeys = {};
+	keyboard.EnterKeys = {};
 	for name, layout in pairs(PAGES) do
 		keys[name] = {};
 		for r, rowKeys in ipairs(layout) do
@@ -675,11 +741,23 @@ local function CreateKeyboard()
 					keyboard.ShiftKey = row[c];
 				elseif key == CHAT then
 					table.insert(keyboard.ChatKeys, row[c]);
+				elseif key == ENTER then
+					table.insert(keyboard.EnterKeys, row[c]);
 				end
 			end
 			keys[name][r] = row;
 		end
 	end
+
+	-- A presses this one (hidden, secure: Enter's macro line runs from it).
+	local aButton = CreateFrame("Button", "GamepadKeyboardAButton", keyboard, "SecureActionButtonTemplate");
+	aButton:RegisterForClicks("AnyDown", "AnyUp");
+	aButton:SetAttribute("type", "macro");
+	aButton:SetAttribute("useOnKeyDown", false);
+	aButton:SetAttribute("macrotext", "");
+	aButton:SetScript("PreClick", APreClick);
+	aButton:SetScript("PostClick", APostClick);
+	aButton:Hide();
 
 	-- LB / RB press these (hidden: not keys to move to).
 	for name, step in pairs({ GamepadKeyboardCursorLeft = -1, GamepadKeyboardCursorRight = 1 }) do
@@ -690,7 +768,7 @@ local function CreateKeyboard()
 		button:Hide();
 	end
 
-	keyboard.Prompts = { CreatePrompt(GAMEPAD_FACE_BOTTOM, "Type") };
+	keyboard.Prompts = { CreatePrompt(GAMEPAD_FACE_BOTTOM, "Type (hold: Enter)") };
 	for _, prompt in ipairs({
 		{ GAMEPAD_FACE_LEFT, "Del" }, { GAMEPAD_FACE_TOP, "Space" }, { GAMEPAD_FACE_RIGHT, "Back" },
 		{ GAMEPAD_SHOULDER_LEFT, "" }, { GAMEPAD_SHOULDER_RIGHT, "Cursor" },
@@ -727,6 +805,7 @@ local function CreateKeyboard()
 		end
 		handedBack = target;
 		ClearShortcuts();
+		aDownAt = nil; -- a press the keyboard closed under isn't a hold next time
 		closing = true;
 		Unregister();
 		closing = false;
@@ -873,6 +952,7 @@ watcher:SetScript("OnUpdate", function()
 		lastInput = "gamepad";
 	end
 	UpdateShortcuts();
+	UpdateHoldHint();
 	-- Open over chat, the chat box has no typing focus (the controller is here). Getting it back means a
 	-- real keyboard (Enter, /) or the mouse took the chat: this keyboard steps aside, the text stays.
 	if keyboard and keyboard:IsShown() and isChat and target then

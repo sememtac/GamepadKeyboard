@@ -12,13 +12,14 @@ While the keyboard has the controller:
 
 | Button | Does |
 | --- | --- |
-| A | the key it's on |
+| A | the key it's on (on release) |
+| hold A | Enter, from any key - the Enter key lights up once it's held long enough (half a second) |
 | X | Del (the letter before the cursor) |
 | Y | Space |
 | LB / RB | move the cursor left / right |
 | B | back, without Enter |
 
-The footer shows these. On another window (LT / RT) or with the keyboard closed, X, Y, LB and RB are
+The footer shows these. On another window (LT / RT) or with the keyboard closed, A, X, Y, LB and RB are
 the game's again.
 
 ## Chat
@@ -82,12 +83,18 @@ did that, so after a reload no key worked until something else took focus). Open
 binding is `OpenChat(nil)`, which keeps the text), the keyboard closes. It reads the box before each key,
 so text typed into a box that kept focus is carried on, not overwritten.
 
-X, Y, LB and RB are override bindings (`SetOverrideBindingClick`, owner: the keyboard) that click its Del
-and Space keys and two hidden cursor buttons - the way the game's controller UI binds its own buttons
+A, X, Y, LB and RB are override bindings (`SetOverrideBindingClick`, owner: the keyboard) that click a
+hidden secure A button, its Del and Space keys, and two hidden cursor buttons - the way the game's controller UI binds its own buttons
 (priority override bindings, owner `UIParent`; the latest binding of a button wins). They're bound while
 the keyboard has the controller (`focusedFrame`), bound again if the controller UI binds one of those
 buttons over them (post-hooks on `SetOverrideBindingClick` / `SetOverrideBinding`), and cleared when the
-controller leaves the keyboard or it closes - before combat locks bindings. The keyboard is a popup in Blizzard's gamepad UI
+controller leaves the keyboard or it closes - before combat locks bindings.
+
+The A button is registered for the press and the release. The press notes the time; the release either
+presses the key the D-pad is on (`SmartNavigation:GetCurrentButton()`, a getter) or, after a hold or on
+the Enter key, runs the Enter key's own PreClick / PostClick around Blizzard's secure macro action - a
+binding's click is a real press, so a held A sends just as A on the Enter key does. (Blizzard's own A
+clicks on the press, so a hold can't be told apart there: by then the key is typed.) The keyboard is a popup in Blizzard's gamepad UI
 (`HandlePopupShown` / `HandlePopupHide`, the functions it wraps for addons), so closing it returns the
 controller to the window the box belongs to. For a chat box, a single space is put in before the keyboard
 takes the controller: that keeps Blizzard from closing the empty box and resetting its chat type (a whisper
@@ -104,7 +111,7 @@ secure, the keyboard is a protected frame; it only opens out of combat and close
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 125 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 137 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
 focus, the menu dial's button already up), and real-keyboard keys delivered as the game delivers them
@@ -118,6 +125,8 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
       still the chat type next time; `/2 hello` goes to channel 2; `/dance` dances; `/cast` a spell
       casts it.
 - [ ] B: back on the chat box with the text and "A Send" showing; A sends it.
+- [ ] Tapping A types the key the D-pad is on; holding A (on any key) lights the Enter key, and letting go
+      sends (chat) or runs the box's Enter. After closing, A works as before everywhere.
 - [ ] X deletes, Y types a space, LB / RB move the gold cursor, and keys type at the cursor. With the
       controller on another window (LT / RT) or the keyboard closed, X / Y / LB / RB do what they did before
       (crossbar, the window's own actions).
