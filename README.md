@@ -4,7 +4,8 @@ An on-screen keyboard for typing with a controller in WoW: Forever (Interface 16
 
 When you go to a text box with the controller - A on a name box or a search box, Chat on the menu dial -
 the keyboard opens on top of the window the box belongs to. It joins Blizzard's gamepad UI like the game's own
-panels: the D-pad moves between keys (left / right along a row, up / down between rows), A types,
+panels: the D-pad moves between keys (left / right along a row, up / down between rows, wrapping round at
+the ends), A types,
 **Enter** does what the Enter key does, B goes back without it, LT / RT switch windows. Each key types
 straight into the text box, at the cursor (the gold bar in the preview line).
 
@@ -169,7 +170,7 @@ multiplied by its scale when kept and divided when used - so it stays put at any
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 209 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 212 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
 focus, the menu dial's button already up), and real-keyboard keys delivered as the game delivers them

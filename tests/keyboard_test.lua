@@ -628,9 +628,11 @@ check(kb:IsShown() and shownNames() == "" and kb.height == 84 + 6 * 34 and key("
 type("bo")
 check(shownNames() == "Bob,Bobby,Boris-Other,Bonnie", "typing: the names it knows that start so, four at most (" .. shownNames() .. ")")
 check(overrides[key("1")] and overrides[key("1")].up == nameKeys()[1], "up from the top row of keys: the names")
+check(overrides[nameKeys()[1]].up == key("SYMBOLS") and overrides[key("SYMBOLS")].down == nameKeys()[1]
+	and overrides[nameKeys()[4]].right == nameKeys()[1], "the names are the top row for wrapping round too")
 playerClick(nameKeys()[2])
 check(mailTo:GetText() == "Bobby" and shownNames() == "" and preview() == "Bobby|", "A on a name: it's put in (and nothing left to pick)")
-check(overrides[key("1")].up == true, "...and up from the keys goes nowhere again")
+check(overrides[key("1")].up == key("SYMBOLS"), "...and up from the keys wraps to the bottom row again")
 pad("PAD3")
 check(mailTo:GetText() == "Bobb" and shownNames() == "Bobby", "Del: the names follow")
 type("x")
@@ -1048,9 +1050,13 @@ GamepadKeyboardDB.position = nil
 -- ---- the D-pad ---------------------------------------------------------------------------------------------------
 padA(function() nameBox:SetFocus() end)
 local function jump(k, dir) return overrides[key(k)] and overrides[key(k)][dir] end
-check(jump("q", "right") == key("w") and jump("p", "right") == true and jump("q", "left") == true, "left / right along a row, stopping at its ends")
+check(jump("q", "right") == key("w") and jump("w", "left") == key("q"), "left / right along a row")
+check(jump("p", "right") == key("q") and jump("q", "left") == key("p") and jump("1", "left") == key("BACK") and jump("BACK", "right") == key("1"),
+	"...wrapping round at its ends")
 check(jump("w", "down") == key("s") and jump("s", "up") == key("w"), "up / down between rows, to the nearest key")
 check(jump("b", "down") == key("SPACE") and jump("SPACE", "up") ~= nil, "down to the wide Space bar and back up")
+check(jump("1", "up") == key("SYMBOLS") and jump("SYMBOLS", "down") == key("3") and jump("ENTER", "down").point[3] == key("1").point[3],
+	"up from the top row wraps to the bottom one, down from the bottom to the top (to the nearest key)")
 kb:Hide(); nameBox:ClearFocus(); poll()
 
 -- ---- when it doesn't open ------------------------------------------------------------------------------------------

@@ -172,7 +172,8 @@ local function Unregister()
 end
 
 -- Rows for the D-pad: left / right move along a row of keys, up / down go to the next row, to the key
--- nearest in X. Sent as SmartNavigation jump overrides (Blizzard's setter for this), only changes.
+-- nearest in X; past an end it wraps round (right from the last key to the first, up from the top row to the
+-- bottom one). Sent as SmartNavigation jump overrides (Blizzard's setter for this), only changes.
 local DIRECTIONS = { UP = { -1, 0 }, DOWN = { 1, 0 }, LEFT = { 0, -1 }, RIGHT = { 0, 1 } };
 local applied = setmetatable({}, { __mode = "k" }); -- key -> direction -> target
 
@@ -186,7 +187,8 @@ local function FindInRows(rows, from, direction)
 		for c, button in ipairs(row) do
 			if button == from then
 				if step[2] ~= 0 then
-					for i = c + step[2], step[2] > 0 and #row or 1, step[2] do
+					for k = 1, #row - 1 do
+						local i = (c - 1 + k * step[2]) % #row + 1;
 						if IsUsable(row[i]) then
 							return row[i];
 						end
@@ -194,7 +196,8 @@ local function FindInRows(rows, from, direction)
 					return nil;
 				end
 				local fromX = from:GetCenter();
-				for i = r + step[1], step[1] > 0 and #rows or 1, step[1] do
+				for k = 1, #rows - 1 do
+					local i = (r - 1 + k * step[1]) % #rows + 1;
 					local best, bestDistance;
 					for _, candidate in ipairs(rows[i]) do
 						if IsUsable(candidate) then
