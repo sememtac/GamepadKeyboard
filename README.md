@@ -111,6 +111,12 @@ Whichever you're using has the text box:
   mouse click in another box makes it step aside instead.
 - **A whisper started from a menu** (a name's Whisper, the chat's channels) while the keyboard is up: LT /
   RT between the chat window and the keyboard keeps the chat to that person, and the chat key shows it.
+- **Not in Options**: the keyboard doesn't open for the Options panel's search box (or any text box in that
+  panel). What an addon types there is kept by the panel, which reads it back as it closes, right before
+  saving key bindings - something only Blizzard's UI may do - so the game blocks it and blames the addon.
+  There's no way for an addon to type there without that; search Options with a real keyboard.
+- **If the game ever blocks it anyway**, it prints what was blocked and which text box it last typed into -
+  worth reporting. A `/reload` clears it.
 - **No names showing** in a box that should have them: type a few letters in it with the keyboard, then
   `/gk names` says what the game's name lookup finds for it (or why it doesn't run).
 - **Bringing it back** after going back to a text box (or after the real keyboard took over): A on the box
@@ -181,7 +187,7 @@ multiplied by its scale when kept and divided when used - so it stays put at any
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 249 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 255 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
 focus, the menu dial's button already up), and real-keyboard keys delivered as the game delivers them
@@ -205,7 +211,7 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
 - [ ] Mail To:: typing a few letters shows up to four names above the keys; D-pad up and A puts one in, and
       the mail can be sent to it.
 - [ ] Options > AddOns > Gamepad Keyboard shows the seven options (Keyboard layout: Dvorak switches the letters at once);
-      typing in the Options search box, then backing out of Options: no "blocked" dialog; each works (Close after Enter off: chat
+      A on the Options search box: no keyboard; backing out of Options: no "blocked" dialog; each works (Close after Enter off: chat
       stays open for the next line). The panel is usable with the controller.
 - [ ] Mail text (several lines): Enter / holding A start a new line; the preview shows "line 2 of 2".
 - [ ] Edit Mode: the keyboard shows with a blue selection, under Edit Mode's panels; dragging moves it, the

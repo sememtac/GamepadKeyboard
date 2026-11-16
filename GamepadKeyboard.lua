@@ -92,6 +92,7 @@ local suggesting = false; -- the box looks names up (a row of name keys above th
 local suggestions = {}; -- the name keys
 local whisperedTo; -- the whisper this chat was in while the keyboard was up: { chatType, target }
 local lastNamesBox; -- the last box typed into that isn't chat (for /gk names)
+local lastBoxName; -- the last box typed into (for a report if the game blocks the addon)
 local text = "";
 local cursor = 0; -- characters before the cursor
 local shift = false;
@@ -1064,6 +1065,8 @@ end
 
 local function SetTarget(box)
 	target = box;
+	local parent = box:GetParent();
+	lastBoxName = (box:GetName() or "an unnamed text box") .. " in " .. tostring(parent and parent:GetName() or "an unnamed frame");
 	chatHadFocus = nil; -- a new box: no focus seen yet
 	whisperedTo = nil; -- (the box's own, if it's in one, at the next preview)
 	isChat = box.chatFrame ~= nil;
@@ -1129,6 +1132,22 @@ local function ControllerAsked()
 	return PadButtonDown() or lastInput == "gamepad";
 end
 
+-- A text box in Blizzard's Settings panel (its search box, the key bindings' search): never. What's typed
+-- there runs the panel's own handler as this addon's doing - the search box's keeps the text in the panel
+-- (self.searchText), and as the panel closes it reads that back, redraws, and saves key bindings, which only
+-- Blizzard's UI may do: "blocked from an action only available to the Blizzard UI". No way to type into a
+-- box from an addon without that, so these are for a real keyboard.
+local function InSettingsPanel(box)
+	local frame = box;
+	while frame do
+		if frame == SettingsPanel then
+			return true;
+		end
+		frame = frame:GetParent();
+	end
+	return false;
+end
+
 local function ShouldOpen(box)
 	return Setting("autoOpen")
 		and ControllerAsked()
@@ -1138,14 +1157,15 @@ local function ShouldOpen(box)
 		and not (keyboard and keyboard:IsShown())
 		and box:IsObjectType("EditBox")
 		and not box:IsForbidden()
-		and box:IsVisible();
+		and box:IsVisible()
+		and not InSettingsPanel(box);
 end
 
 -- Typing focus went to another text box while the keyboard is open. The controller's doing (LT to the
 -- window, A on another box): the keyboard types there now - in place, the controller staying where it is
 -- (back to the keyboard with LT / RT). A real keyboard's or the mouse's: the keyboard steps aside.
 local function SwitchTo(box)
-	if not (ControllerAsked() and box:IsObjectType("EditBox") and not box:IsForbidden() and box:IsVisible()) then
+	if not (ControllerAsked() and box:IsObjectType("EditBox") and not box:IsForbidden() and box:IsVisible() and not InSettingsPanel(box)) then
 		Close();
 		return;
 	end
@@ -1496,8 +1516,17 @@ watcher:RegisterEvent("PLAYER_REGEN_DISABLED");
 watcher:RegisterEvent("PLAYER_REGEN_ENABLED");
 watcher:RegisterEvent("GLOBAL_MOUSE_DOWN");
 watcher:RegisterEvent("ADDON_LOADED");
+watcher:RegisterEvent("ADDON_ACTION_FORBIDDEN");
+watcher:RegisterEvent("ADDON_ACTION_BLOCKED");
 watcher:SetScript("OnEvent", function(_, event, ...)
-	if event == "ADDON_LOADED" then
+	if event == "ADDON_ACTION_FORBIDDEN" or event == "ADDON_ACTION_BLOCKED" then
+		-- The game blocked something and blamed this addon: what, and where it last typed (for a report).
+		local addon, action = ...;
+		if addon == ADDON_NAME then
+			Print(("the game blocked %s (%s). Last typed into: %s. A /reload clears it; please report this."):format(
+				tostring(action), event == "ADDON_ACTION_FORBIDDEN" and "Blizzard UI only" or "in combat", lastBoxName or "nothing yet"));
+		end
+	elseif event == "ADDON_LOADED" then
 		if ... == ADDON_NAME then
 			watcher:UnregisterEvent("ADDON_LOADED");
 			RegisterOptions(); -- the saved table is the loaded one now

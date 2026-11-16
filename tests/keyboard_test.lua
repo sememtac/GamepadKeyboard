@@ -637,7 +637,7 @@ openChat("SAY"); poll(); poll()
 check(not key("ENTER").locked, "closed while A is held: not a hold the next time it opens")
 kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 -- A name box: holding A is its own Enter.
-local holdBox = W.CreateFrame("EditBox", nil, optionsPanel or UIParent, "InputBoxTemplate")
+local holdBox = W.CreateFrame("EditBox", nil, UIParent, "InputBoxTemplate")
 holdBox.center = { 500, 300 }
 local holdEntered = 0
 holdBox.scripts.OnEnterPressed = function(self) holdEntered = holdEntered + 1; self:ClearFocus() end
@@ -898,6 +898,38 @@ check(kb:IsShown() and chatBox:GetText() == " " and chatBox.attrs.chatType == "W
 type("yo"); playerClick(key("ENTER"))
 check(macros[#macros] == "/w Bob Yo", "...and it goes to him")
 poll()
+
+-- ---- Blizzard's Settings panel: not for the keyboard ---------------------------------------------------------------
+SettingsPanel = W.CreateFrame("Frame", "SettingsPanel", UIParent)
+local settingsSearch = W.CreateFrame("EditBox", nil, SettingsPanel, "InputBoxTemplate")
+settingsSearch.center = { 400, 700 }
+local bindingsPage = W.CreateFrame("Frame", nil, SettingsPanel)
+local bindingsSearch = W.CreateFrame("EditBox", nil, bindingsPage, "InputBoxTemplate")
+bindingsSearch.center = { 400, 600 }
+manager:FrameShown(SettingsPanel)
+padA(function() settingsSearch:SetFocus() end)
+check(not kb:IsShown(), "the Options search box: no keyboard (what's typed there would get the panel's close blocked)")
+settingsSearch:ClearFocus(); poll()
+padA(function() bindingsSearch:SetFocus() end)
+check(not kb:IsShown(), "...nor any text box inside the Options panel")
+bindingsSearch:ClearFocus(); poll()
+local outside = W.CreateFrame("EditBox", nil, UIParent, "InputBoxTemplate")
+outside.center = { 400, 500 }
+padA(function() outside:SetFocus() end)
+check(kb:IsShown(), "(a text box elsewhere: as before)")
+padA(function() focus(SettingsPanel) end)
+padA(function() settingsSearch:SetFocus() end)
+check(not kb:IsShown(), "focus moving to the Options search box while it's open: it steps aside")
+settingsSearch:ClearFocus(); outside:ClearFocus(); manager:FrameHidden(SettingsPanel); poll()
+SettingsPanel = nil
+-- If the game blocks the addon anyway: what, and where it last typed.
+local printedBefore = #world.printed
+W.fireEvent("ADDON_ACTION_FORBIDDEN", "SomeOtherAddOn", "SaveBindings()")
+check(#world.printed == printedBefore, "(another addon blocked: not ours to report)")
+W.fireEvent("ADDON_ACTION_FORBIDDEN", "GamepadKeyboard", "SaveBindings()")
+check(#world.printed == printedBefore + 1 and world.printed[#world.printed]:find("SaveBindings()", 1, true)
+	and world.printed[#world.printed]:find("Blizzard UI only", 1, true) and world.printed[#world.printed]:find("Last typed into: an unnamed text box", 1, true),
+	"blocked anyway: it says what, and the last box it typed into (" .. world.printed[#world.printed] .. ")")
 
 -- ---- the chat key ------------------------------------------------------------------------------------------------
 openChat("SAY"); poll()
