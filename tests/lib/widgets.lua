@@ -97,6 +97,12 @@ function Frame:GetFrameStrata() return self.strata or "MEDIUM" end
 function Frame:SetFrameLevel(v) self.level = v end
 function Frame:GetFrameLevel() return self.level or 1 end
 function Frame:EnableMouse(v) self.mouse = v end
+function Frame:EnableKeyboard(v) self.keyboardEnabled = v end
+-- Insecure code can't change it in combat. Off (keep every key) until set, as in the game.
+function Frame:SetPropagateKeyboardInput(v)
+	if world.inCombat() then W.blockedMessages = (W.blockedMessages or 0) + 1; return end
+	self.propagate = v
+end
 function Frame:SetMovable(v) self.movable = v end
 function Frame:RegisterForDrag(...) self.drag = { ... } end
 function Frame:StartMoving() self.moving = true end

@@ -27,6 +27,17 @@ function hooksecurefunc(t, k, fn)
 end
 NUM_CHAT_WINDOWS = 1
 local function poll() W.update(0.016) end
+local held = {} -- keys and controller buttons held down
+function IsKeyDown(k) return held[k] == true end
+local overrideBindings = {} -- key -> { owner, button name }
+function SetOverrideBindingClick(owner, isPriority, k, name)
+	assert(not world.combat, "SetOverrideBindingClick in combat")
+	overrideBindings[k] = { owner = owner, name = name }
+end
+function ClearOverrideBindings(owner)
+	assert(not world.combat, "ClearOverrideBindings in combat")
+	for k, b in pairs(overrideBindings) do if b.owner == owner then overrideBindings[k] = nil end end
+end
 
 -- Blizzard's focus manager: popups return focus to the frame they opened over; focusing a frame unfocuses
 -- the previous one (UnfocusGamepad), FocusGamepad on the new one.
@@ -95,9 +106,10 @@ chatFrame.editBox = chatBox
 function chatFrame:FocusGamepad() chatBox:SetFocus() end
 function chatFrame:UnfocusGamepad() chatBox:ClearFocus() end
 function chatFrame:SetGamepadFocus() GamepadMode.FrameControlsManager:FrameShown(self) end -- the menu dial's Chat
+local menuDialChat -- set below
 local function openChat(chatType, tellTarget, channelTarget)
 	chatBox.attrs.chatType, chatBox.attrs.tellTarget, chatBox.attrs.channelTarget, chatBox.deactivated = chatType, tellTarget, channelTarget, nil
-	chatFrame:SetGamepadFocus()
+	menuDialChat()
 end
 ChatTypeInfo = { SAY = { sticky = 1 }, PARTY = { sticky = 1 }, CHANNEL = { sticky = 1 }, WHISPER = { sticky = 0 } }
 local poisoned = {}
@@ -109,22 +121,77 @@ C_ChatInfo = { SendChatMessage = poison("C_ChatInfo.SendChatMessage") }
 -- A player's A on a key (SmartNavigation clicks it) or a mouse click.
 -- Frames pass between presses, as in the game (the focus watcher runs every frame).
 local macros = {}
+-- SecureActionButton_OnClick: PreClick, the action on release (useOnKeyDown off), PostClick.
+local function secureClick(button)
+	assert(button.OnSmartNavClick == nil and button.scripts.OnClick == nil, "the secure OnClick must stay Blizzard's")
+	if button.scripts.PreClick then button.scripts.PreClick(button, "LeftButton", false) end
+	if button.attrs.useOnKeyDown == false and button.clicks[1] == "AnyUp" and button.attrs.type == "macro" and button.attrs.macrotext ~= "" then
+		macros[#macros + 1] = button.attrs.macrotext -- C_Macro.RunMacroText, securely
+	end
+	if button.scripts.PostClick then button.scripts.PostClick(button, "LeftButton", false) end
+end
 local function playerClick(button)
 	poll()
 	assert(button and button:IsVisible() and button:IsEnabled(), "clicking a missing, hidden or disabled key")
-	if W.hasTemplate(button.template, "SecureActionButtonTemplate") then
-		-- SecureActionButton_OnClick: PreClick, the action on release (useOnKeyDown off), PostClick.
-		assert(button.OnSmartNavClick == nil and button.scripts.OnClick == nil, "the secure OnClick must stay Blizzard's")
-		if button.scripts.PreClick then button.scripts.PreClick(button, "LeftButton", false) end
-		if button.attrs.useOnKeyDown == false and button.clicks[1] == "AnyUp" and button.attrs.type == "macro" and button.attrs.macrotext ~= "" then
-			macros[#macros + 1] = button.attrs.macrotext -- C_Macro.RunMacroText, securely
-		end
-		if button.scripts.PostClick then button.scripts.PostClick(button, "LeftButton", false) end
-	else
-		button:Click()
-	end
+	held.PAD1 = true -- A
+	if W.hasTemplate(button.template, "SecureActionButtonTemplate") then secureClick(button) else button:Click() end
+	poll()
+	held.PAD1 = nil
 	poll()
 end
+
+-- The controller: A while a text box takes focus (SmartNavigation clicks it); the menu dial, whose button
+-- comes up before Chat is chosen.
+local function padA(fn) poll(); held.PAD1 = true; fn(); poll(); held.PAD1 = nil; poll() end
+local function menuDial(fn) poll(); held.PADFORWARD = true; poll(); held.PADFORWARD = nil; fn() end
+
+-- A real keyboard, as the game delivers a key: to the text box with typing focus; else to keyboard-enabled
+-- frames from the top strata down until one keeps it (then its OnChar and OnKeyUp); else to the key's
+-- binding, an override first. Blizzard's own: Enter opens chat (ChatFrameUtil.OpenChat -> editBox:SetFocus),
+-- Escape closes special frames.
+local STRATA = { BACKGROUND = 1, LOW = 2, MEDIUM = 3, HIGH = 4, DIALOG = 5, FULLSCREEN = 6, FULLSCREEN_DIALOG = 7, TOOLTIP = 8 }
+local bindingsRun = {}
+local DEFAULT_BINDINGS = {
+	ENTER = function() chatBox.deactivated = nil; chatBox:SetFocus() end,
+	ESCAPE = function() for _, name in ipairs(UISpecialFrames) do if _G[name]:IsShown() then _G[name]:Hide() end end end,
+}
+local function keyboardKey(k, char)
+	poll()
+	held[k] = true
+	local box = W.focused
+	if box then
+		if k == "ENTER" then if box.scripts.OnEnterPressed then box.scripts.OnEnterPressed(box) end
+		elseif k == "BACKSPACE" then box.text = box.text:sub(1, -2)
+		elseif char then box.text = box.text .. char end
+	else
+		local listeners = {}
+		for _, f in ipairs(W.frames) do
+			if f.keyboardEnabled and f:IsVisible() and f.scripts.OnKeyDown then listeners[#listeners + 1] = f end
+		end
+		table.sort(listeners, function(a, b) return STRATA[a:GetFrameStrata()] > STRATA[b:GetFrameStrata()] end)
+		local keptBy
+		for _, f in ipairs(listeners) do
+			f.scripts.OnKeyDown(f, k)
+			if not f.propagate then keptBy = f; break end
+		end
+		if keptBy then
+			if char and keptBy.scripts.OnChar and keptBy:IsVisible() then keptBy.scripts.OnChar(keptBy, char) end
+		elseif overrideBindings[k] then
+			bindingsRun[#bindingsRun + 1] = k
+			secureClick(_G[overrideBindings[k].name]) -- the binding's click, on the key's release
+		else
+			bindingsRun[#bindingsRun + 1] = k
+			if DEFAULT_BINDINGS[k] then DEFAULT_BINDINGS[k]() end
+		end
+		held[k] = nil
+		if keptBy and keptBy.scripts.OnKeyUp and keptBy:IsVisible() then keptBy.scripts.OnKeyUp(keptBy, k) end
+	end
+	held[k] = nil
+	poll()
+end
+local function mouseClick(fn) poll(); W.fireEvent("GLOBAL_MOUSE_DOWN", "LeftButton"); fn(); poll() end
+
+function menuDialChat() menuDial(function() chatFrame:SetGamepadFocus() end) end
 
 -- ---- load ---------------------------------------------------------------------------------------------
 H.loadAddon({})
@@ -160,7 +227,7 @@ check(not kb:IsShown(), "it doesn't open again for the box it went back to")
 check(#poisoned == 0, "the keyboard never called a chat send function")
 -- Back on the chat box, choosing Chat on the menu dial again (the chat is already the focused panel, so
 -- nothing changes focus): the keyboard comes back.
-chatFrame:SetGamepadFocus(); poll()
+menuDialChat(); poll()
 check(kb:IsShown() and chatBox:GetText() == "Hi ther", "Chat chosen again while back on the chat box: the keyboard comes back, with the text")
 local enter = key("ENTER")
 check(enter.text == "Enter" and enter.protected and enter.attrs.type == "macro" and enter.attrs.useOnKeyDown == false and enter.clicks[1] == "AnyUp",
@@ -188,7 +255,9 @@ playerClick(key("ENTER"))
 check(macros[#macros] == "/p Pull" and chatBox.attrs.stickyType == "PARTY", "party chat: /p, and party sticks for the next line")
 poll()
 openChat("SAY"); poll()
-playerClick(key("SYMBOLS")); playerClick(key("/")); playerClick(key("LETTERS")); type("p "); type("hi")
+playerClick(key("SYMBOLS")); playerClick(key("/")); playerClick(key("LETTERS")); type("p ")
+check(chatBox:GetText() == "" and kb.Preview.text == "_", "the preview shows what the box made of /p (party chat, nothing typed yet)")
+type("hi")
 check(chatBox.attrs.chatType == "PARTY" and chatBox:GetText() == "hi" and kb.Preview.text == "hi_", "typing /p and a space switches to party, as typing does")
 playerClick(key("ENTER"))
 check(macros[#macros] == "/p hi", "...and Enter sends it to party")
@@ -239,8 +308,8 @@ check(chatBox:GetText() == "Ok!" and key("q") ~= nil, "a symbol, then ABC back t
 local hasPipe = false
 for _, f in ipairs(W.frames) do if f.key == "|" then hasPipe = true end end
 check(not hasPipe, "no | key (the game reads it as an escape code)")
-kb:Hide() -- Escape on a real keyboard
-check(manager.focusedFrame == chatFrame and chatBox:GetText() == "Ok!", "closed by Escape: same as B")
+keyboardKey("ESCAPE")
+check(not kb:IsShown() and manager.focusedFrame == chatFrame and chatBox:GetText() == "Ok!", "closed by Escape on a real keyboard: same as B")
 chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 
 -- ---- any other text box: a window with a name box ----------------------------------------------------------------
@@ -252,7 +321,7 @@ nameBox.text = "Tot"
 local entered = 0
 nameBox.scripts.OnEnterPressed = function(self) entered = entered + 1; self:ClearFocus() end
 manager:FrameShown(panel)
-nameBox:SetFocus(); poll() -- A on the name box (OnSmartNavClick -> SetFocus)
+padA(function() nameBox:SetFocus() end) -- A on the name box
 check(kb:IsShown() and manager.popupReturnFrames[kb] == panel, "a name box in a window: the keyboard opens over that window")
 check(kb.point and kb.point[1] == "TOP" and kb.point[2] == nameBox, "below the box (it's in the upper half of the screen)")
 check(not key("SHIFT").locked and nameBox:GetText() == "Tot", "no Shift, and it starts from the box's text")
@@ -262,14 +331,115 @@ kb:SmartNavigationCloseHandler()
 check(manager.focusedFrame == panel and nameBox:GetText() == "Totem" and entered == 0, "B: back to the window, the text stays")
 poll(); poll()
 check(not kb:IsShown(), "it doesn't open again while the box still has focus")
-nameBox:SetFocus(); poll() -- A on the name box again: it still has focus
+padA(function() nameBox:SetFocus() end) -- A on the name box again: it still has focus
 check(kb:IsShown(), "A on the box again (it never lost focus): the keyboard comes back")
 playerClick(key("ENTER"))
 check(entered == 1 and not kb:IsShown() and manager.focusedFrame == panel and nameBox:GetText() == "Totem" and not nameBox:HasFocus(),
 	"Enter: the box's own Enter action (here: done typing), back to the window")
-poll(); nameBox:SetFocus(); poll()
+padA(function() nameBox:SetFocus() end)
 check(kb:IsShown(), "focusing the box again later opens it again")
 kb:Hide(); nameBox:ClearFocus(); poll()
+
+-- ---- a real keyboard, the mouse, the controller ----------------------------------------------------------------
+local watcherFrame
+for _, f in ipairs(W.frames) do if f.keyboardEnabled and f ~= kb then watcherFrame = f end end
+check(watcherFrame and watcherFrame.propagate == true and kb.propagate == true, "every key passes on unless the keyboard is open and keeps a typing key")
+keyboardKey("W")
+check(bindingsRun[#bindingsRun] == "W", "a key on a real keyboard still reaches its binding (walking)")
+-- Enter on a real keyboard in controller mode: the chat is for that keyboard.
+keyboardKey("ENTER")
+check(chatBox:HasFocus() and not kb:IsShown(), "Enter on a real keyboard opens chat without the on-screen keyboard")
+keyboardKey("H", "H"); keyboardKey("I", "i")
+check(chatBox:GetText() == "Hi" and not kb:IsShown(), "...and the real keyboard types in it")
+poll(); poll()
+check(not kb:IsShown(), "...and it stays closed")
+menuDialChat(); poll()
+check(kb:IsShown() and chatBox:GetText() == "Hi", "Chat on the menu dial then: the on-screen keyboard comes, with the text")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+-- A ctrl-click on an item that puts focus in some addon's box (a link to copy, say).
+local copyBox = W.CreateFrame("EditBox", nil, UIParent)
+keyboardKey("LCTRL")
+mouseClick(function() copyBox:SetFocus() end)
+check(copyBox:HasFocus() and not kb:IsShown(), "a mouse click that puts focus in a box: no on-screen keyboard")
+padA(function() copyBox:SetFocus() end)
+check(kb:IsShown(), "A on that box, which kept focus: it opens (the controller's button is down)")
+kb:SmartNavigationCloseHandler(); copyBox:ClearFocus(); poll()
+-- Chat focused by the controller with nothing held (its button already up), after keys that don't say
+-- "real keyboard": Shift / Ctrl (Forever's controller modifiers too), and a controller button, if the game
+-- hands those to key listeners as well.
+padA(function() end)
+keyboardKey("LSHIFT"); keyboardKey("RCTRL")
+chatFrame:SetGamepadFocus(); poll()
+check(kb:IsShown(), "Shift / Ctrl since the controller's last press: still the controller")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+keyboardKey("W"); keyboardKey("PAD3")
+chatFrame:SetGamepadFocus(); poll()
+check(kb:IsShown(), "a controller button heard as a key counts as the controller")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+
+-- Typing on a real keyboard while the on-screen one is open: the real one takes over.
+openChat("WHISPER", "Bob"); poll()
+type("hey")
+check(overrideBindings.ENTER and overrideBindings.ENTER.owner == kb, "while open, Enter on a real keyboard is bound to its Enter")
+local ran = #bindingsRun
+keyboardKey("R", "r")
+check(not kb:IsShown() and chatBox:HasFocus() and chatBox:GetText() == "Heyr" and #bindingsRun == ran,
+	"a typed key goes into the chat box, not to its binding (no reply), and the on-screen keyboard steps aside")
+check(chatBox.attrs.tellTarget == "Bob" and overrideBindings.ENTER == nil, "...the whisper target stays, Enter is the chat's again")
+keyboardKey("!", "!")
+check(chatBox:GetText() == "Heyr!" and not kb:IsShown(), "...and the real keyboard carries on typing there")
+chatBox.text = ""; chatBox:ClearFocus(); manager:FrameHidden(chatFrame); poll()
+openChat("WHISPER", "Bob"); poll()
+type("yo")
+keyboardKey("BACKSPACE")
+check(chatBox:GetText() == "Y" and not kb:IsShown() and chatBox:HasFocus(), "Backspace on a real keyboard deletes, then the real keyboard has the box")
+chatBox.text = ""; chatBox:ClearFocus(); manager:FrameHidden(chatFrame); poll()
+before = #macros
+openChat("PARTY"); poll()
+type("go")
+keyboardKey("ENTER")
+check(macros[#macros] == "/p Go" and #macros == before + 1 and not kb:IsShown() and indexOf(chatFrame) == nil,
+	"Enter on a real keyboard while it's open: its Enter - sent, chat closed")
+check(overrideBindings.ENTER == nil and overrideBindings.NUMPADENTER == nil and _G.GamepadKeyboardEnterKey.attrs.macrotext == "",
+	"...the Enter binding is gone and no line is left to send again")
+openChat("SAY"); poll()
+type("ok")
+keyboardKey("NUMPADENTER")
+check(macros[#macros] == "/s Ok" and not kb:IsShown(), "the number pad's Enter too")
+poll()
+openChat("SAY"); poll()
+keyboardKey("LSHIFT")
+check(kb:IsShown(), "Shift alone on a real keyboard: still open")
+keyboardKey("F1"); poll()
+check(kb:IsShown() and bindingsRun[#bindingsRun] == "F1", "a key that doesn't type (F1) goes on to its binding; still open")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+-- A box that kept typing focus while the keyboard is open: a real keyboard types into it; the keyboard follows.
+nameBox.text = ""
+padA(function() nameBox:SetFocus() end)
+type("ab")
+keyboardKey("C", "c")
+check(nameBox:GetText() == "abc", "a box that kept typing focus: the real keyboard types into it")
+playerClick(key("d"))
+check(nameBox:GetText() == "abcd", "...and the on-screen keyboard carries on from there, not from its own copy")
+kb:SmartNavigationCloseHandler(); nameBox:ClearFocus(); poll()
+-- A box in a window that takes typing focus away when the controller leaves it (as the chat does).
+local form = W.CreateFrame("Frame", "SomeForm", UIParent)
+local formBox = W.CreateFrame("EditBox", nil, form, "InputBoxTemplate")
+formBox.center = { 500, 300 }
+function form:UnfocusGamepad() formBox:ClearFocus() end
+manager:FrameShown(form)
+padA(function() formBox:SetFocus() end)
+check(kb:IsShown() and not formBox:HasFocus(), "(a box that loses typing focus while the keyboard is open)")
+keyboardKey("X", "x"); keyboardKey("Y", "y")
+check(not kb:IsShown() and formBox:HasFocus() and formBox:GetText() == "xy",
+	"a real keyboard there: the first letter goes in, the box gets typing focus back, the next lands in it")
+keyboardKey("\\", "|")
+check(formBox:GetText() == "xy|" and not kb:IsShown(), "(a real keyboard in a focused box types what it types)")
+formBox.text = ""; formBox:ClearFocus(); poll()
+padA(function() formBox:SetFocus() end)
+keyboardKey("\\", "|")
+check(formBox:GetText() == "" and not kb:IsShown() and formBox:HasFocus(), "a | typed as the real keyboard takes over isn't put in (the game reads it as an escape code)")
+formBox:ClearFocus(); manager:FrameHidden(form); poll()
 
 -- ---- dragging it somewhere else -------------------------------------------------------------------------------
 openChat("SAY"); poll()
@@ -291,7 +461,7 @@ kb:Hide(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 for _, f in ipairs(W.frames) do
 	if f.parent == kb and f.key and f.point then f.center = { f.point[2] + f.width / 2, -f.point[3] } end
 end
-nameBox:SetFocus(); poll()
+padA(function() nameBox:SetFocus() end)
 local function jump(k, dir) return overrides[key(k)] and overrides[key(k)][dir] end
 check(jump("q", "right") == key("w") and jump("p", "right") == true and jump("q", "left") == true, "left / right along a row, stopping at its ends")
 check(jump("w", "down") == key("s") and jump("s", "up") == key("w"), "up / down between rows, to the nearest key")
@@ -310,7 +480,7 @@ check(not kb:IsShown(), "keyboard and mouse: doesn't open")
 style = 1
 chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 local secret = W.CreateFrame("EditBox", nil, UIParent); secret.forbidden = true
-secret:SetFocus(); poll()
+padA(function() secret:SetFocus() end)
 check(not kb:IsShown(), "a forbidden box (Blizzard's store and such): doesn't open")
 secret:ClearFocus(); poll()
 SlashCmdList.GAMEPADKEYBOARD("off")
@@ -326,6 +496,10 @@ W.fireEvent("PLAYER_REGEN_DISABLED")
 world.combat = true
 poll()
 check(not kb:IsShown() and chatBox:GetText() == "Pull" and chatBox.attrs.chatType == "PARTY", "combat starts: the keyboard closes, the text and chat type stay")
+check(overrideBindings.ENTER == nil and (W.blockedMessages or 0) == 0, "...its Enter binding cleared before combat locks it, nothing blocked")
+before = #macros
+check(pcall(secureClick, GamepadKeyboardEnterKey) and #macros == before,
+	"its Enter pressed in combat (only a leftover binding could): nothing set on it, nothing sent")
 world.combat = false
 chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 -- Blizzard refusing the hide as combat starts: retried after combat.
