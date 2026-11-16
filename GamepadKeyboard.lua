@@ -293,7 +293,7 @@ local function Split(s, characters)
 end
 
 -- The text with the cursor (a gold bar; "||" shows one "|"), at most 48 characters of it around the cursor.
-local CARET = "|cffffd100||r";
+local CARET = "|cffffd100|||r"; -- "||" a "|", then "|r" ends the colour
 local PREVIEW_LENGTH = 48;
 
 local function UpdatePreview()

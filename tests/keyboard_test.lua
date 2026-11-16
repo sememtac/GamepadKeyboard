@@ -284,7 +284,20 @@ poll(); poll()
 check(W.focused == nil, "loading takes no typing focus (a text box of ours shown with auto-focus would keep every key)")
 
 local function keyboard() return GamepadKeyboardFrame end
-local CARET = "|cffffd100||r"
+-- What a FontString shows, read left to right: "||" is one "|", "|cAARRGGBB" and "|r" are colour codes.
+local function shown(s)
+	local out, i = {}, 1
+	while i <= #s do
+		local c, n = s:sub(i, i), s:sub(i + 1, i + 1)
+		if c == "|" and n == "|" then out[#out + 1] = "|"; i = i + 2
+		elseif c == "|" and n == "c" then i = i + 10
+		elseif c == "|" and n == "r" then i = i + 2
+		else out[#out + 1] = c; i = i + 1 end
+	end
+	return table.concat(out)
+end
+local function preview() return shown(keyboard().Preview.text) end
+local CARET = "|" -- the cursor, as it shows
 local function key(k)
 	for _, f in ipairs(W.frames) do if f.parent == keyboard() and f.key == k and f.shown then return f end end
 end
@@ -302,7 +315,7 @@ check(not chatBox:HasFocus() and not chatBox.deactivated and chatBox.attrs.chatT
 	"the chat box stays open and keeps its whisper target (a placeholder space kept it from closing)")
 check(key("SHIFT").locked, "an empty chat line starts with Shift on")
 type("hi"); playerClick(key("SPACE")); type("there")
-check(chatBox:GetText() == "Hi there" and kb.Preview.text == "Hi there" .. CARET, "keys type into the chat box (its own preview) - first letter capital")
+check(chatBox:GetText() == "Hi there" and preview() == "Hi there" .. CARET, "keys type into the chat box (its own preview) - first letter capital")
 playerClick(key("BACK"))
 check(chatBox:GetText() == "Hi ther", "Del removes the last letter")
 kb:SmartNavigationCloseHandler() -- B
@@ -343,9 +356,9 @@ check(macros[#macros] == "/p Pull" and chatBox.attrs.stickyType == "PARTY", "par
 poll()
 openChat("SAY"); poll()
 playerClick(key("SYMBOLS")); playerClick(key("/")); playerClick(key("LETTERS")); type("p ")
-check(chatBox:GetText() == "" and kb.Preview.text == CARET, "the preview shows what the box made of /p (party chat, nothing typed yet)")
+check(chatBox:GetText() == "" and preview() == CARET, "the preview shows what the box made of /p (party chat, nothing typed yet)")
 type("hi")
-check(chatBox.attrs.chatType == "PARTY" and chatBox:GetText() == "hi" and kb.Preview.text == "hi" .. CARET, "typing /p and a space switches to party, as typing does")
+check(chatBox.attrs.chatType == "PARTY" and chatBox:GetText() == "hi" and preview() == "hi" .. CARET, "typing /p and a space switches to party, as typing does")
 playerClick(key("ENTER"))
 check(macros[#macros] == "/p hi", "...and Enter sends it to party")
 poll()
@@ -406,27 +419,27 @@ check(boundTo("PAD3") == "CLICK GamepadKeyboardDelKey:LeftButton" and boundTo("P
 	and boundTo("PADLSHOULDER") == "CLICK GamepadKeyboardCursorLeft:LeftButton" and boundTo("PADRSHOULDER") == "CLICK GamepadKeyboardCursorRight:LeftButton",
 	"with the keyboard open: X Del, Y Space, LB / RB the cursor")
 type("hi"); pad("PAD4"); type("you")
-check(chatBox:GetText() == "Hi you" and kb.Preview.text == "Hi you" .. CARET, "Y types a space")
+check(chatBox:GetText() == "Hi you" and preview() == "Hi you" .. CARET, "Y types a space")
 pad("PAD3")
 check(chatBox:GetText() == "Hi yo", "X deletes")
 pad("PADLSHOULDER"); pad("PADLSHOULDER")
-check(kb.Preview.text == "Hi " .. CARET .. "yo" and chatBox:GetText() == "Hi yo", "LB moves the cursor left (the preview shows it)")
+check(preview() == "Hi " .. CARET .. "yo" and chatBox:GetText() == "Hi yo", "LB moves the cursor left (the preview shows it)")
 type("t")
-check(chatBox:GetText() == "Hi tyo" and kb.Preview.text == "Hi t" .. CARET .. "yo", "keys type at the cursor")
+check(chatBox:GetText() == "Hi tyo" and preview() == "Hi t" .. CARET .. "yo", "keys type at the cursor")
 pad("PAD3"); pad("PAD3")
-check(chatBox:GetText() == "Hiyo" and kb.Preview.text == "Hi" .. CARET .. "yo", "X deletes the letter before the cursor")
+check(chatBox:GetText() == "Hiyo" and preview() == "Hi" .. CARET .. "yo", "X deletes the letter before the cursor")
 for _ = 1, 5 do pad("PADLSHOULDER") end
-check(kb.Preview.text == CARET .. "Hiyo", "...not past the start")
+check(preview() == CARET .. "Hiyo", "...not past the start")
 pad("PAD3")
 check(chatBox:GetText() == "Hiyo", "X at the start: nothing to delete")
 for _ = 1, 6 do pad("PADRSHOULDER") end
-check(kb.Preview.text == "Hiyo" .. CARET, "RB moves it right, not past the end")
+check(preview() == "Hiyo" .. CARET, "RB moves it right, not past the end")
 pad("PADLSHOULDER"); playerClick(key("SYMBOLS")); pad("PAD4"); playerClick(key("!")); pad("PAD3")
-check(chatBox:GetText() == "Hiy o" and kb.Preview.text == "Hiy " .. CARET .. "o", "on the symbols page too (Space, Del)")
+check(chatBox:GetText() == "Hiy o" and preview() == "Hiy " .. CARET .. "o", "on the symbols page too (Space, Del)")
 playerClick(key("LETTERS"))
 pad("PADLSHOULDER")
 playerClick(key("CHAT"))
-check(chatBox.attrs.chatType == "SAY" and kb.Preview.text == "Hiy" .. CARET .. " o", "the chat key keeps the cursor")
+check(chatBox.attrs.chatType == "SAY" and preview() == "Hiy" .. CARET .. " o", "the chat key keeps the cursor")
 -- The controller UI binding X over the keyboard's while it's open: the keyboard's again.
 SetOverrideBindingClick(UIParent, true, "PAD3", "Blizzard_Other")
 check(boundTo("PAD3") == "CLICK GamepadKeyboardDelKey:LeftButton", "the controller UI binding X over it while open: bound again")
@@ -446,9 +459,9 @@ chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 openChat("SAY"); poll()
 local long = string.rep("abcdefghij", 6) -- 60 letters
 chatBox.text = long; pad("PADRSHOULDER") -- (the keyboard reads the box at its next key)
-check(kb.Preview.text == "..." .. long:sub(13) .. CARET, "a long line: the preview shows the 48 letters before the cursor")
+check(preview() == "..." .. long:sub(13) .. CARET, "a long line: the preview shows the 48 letters before the cursor")
 for _ = 1, 50 do pad("PADLSHOULDER") end
-check(kb.Preview.text == long:sub(1, 10) .. CARET .. long:sub(11, 48) .. "...", "...and with the cursor near the start, the start")
+check(preview() == long:sub(1, 10) .. CARET .. long:sub(11, 48) .. "...", "...and with the cursor near the start, the start")
 type("x")
 check(chatBox:GetText() == long:sub(1, 10) .. "X" .. long:sub(11), "(typed at the cursor in a long line)")
 kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
@@ -485,7 +498,7 @@ local hiddenQ = key("q")
 playerClick(key("SYMBOLS"))
 navCurrent = hiddenQ
 pressA()
-check(kb.Preview.text == CARET and chatBox:GetText() == " " and kb:IsShown(), "a tap on a key that's hidden now (another page): nothing")
+check(preview() == CARET and chatBox:GetText() == " " and kb:IsShown(), "a tap on a key that's hidden now (another page): nothing")
 playerClick(key("LETTERS"))
 kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 -- The release of an A whose press went to the controller UI (the A that opened the keyboard): nothing.
@@ -523,7 +536,7 @@ check(chatBox.attrs.chatType == "SAY" and chatBox:GetText() == "Hi" and chatKey.
 world.party, world.guild = true, true
 lastTell, lastTellType = "Bob-Realm", "WHISPER"
 playerClick(chatKey)
-check(chatBox.attrs.chatType == "PARTY" and chatBox:GetText() == "Hi" and chatKey.text == "Party" and kb.Preview.text == "Hi" .. CARET,
+check(chatBox.attrs.chatType == "PARTY" and chatBox:GetText() == "Hi" and chatKey.text == "Party" and preview() == "Hi" .. CARET,
 	"in a party: Party next, the text kept")
 playerClick(chatKey)
 check(chatBox.attrs.chatType == "GUILD" and chatKey.text == "Guild" and chatBox:GetText() == "Hi", "...then Guild")
@@ -546,7 +559,7 @@ kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFra
 world.raid, world.instance = false, false
 openChat("SAY"); poll()
 playerClick(key("CHAT"))
-check(chatBox.attrs.chatType == "PARTY" and chatBox:GetText() == "" and kb.Preview.text == CARET and key("SHIFT").locked,
+check(chatBox.attrs.chatType == "PARTY" and chatBox:GetText() == "" and preview() == CARET and key("SHIFT").locked,
 	"with nothing typed yet: switched, still nothing typed, Shift still on")
 type("go")
 playerClick(key("ENTER"))
