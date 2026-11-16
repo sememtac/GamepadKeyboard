@@ -39,6 +39,32 @@ local held = {} -- keys and controller buttons held down
 function IsKeyDown(k) return held[k] == true end
 local BOUND = { OPENCHAT = { "ENTER", "PADBACK" }, OPENCHATSLASH = { "/" }, REPLY = { "R" }, REPLY2 = { "CTRL-T" } }
 function GetBindingKey(binding) return unpack(BOUND[binding] or {}) end
+GAMEPAD_FACE_LEFT, GAMEPAD_FACE_TOP, GAMEPAD_SHOULDER_LEFT, GAMEPAD_SHOULDER_RIGHT = "PAD3", "PAD4", "PADLSHOULDER", "PADRSHOULDER"
+-- Override bindings, as the game keeps them: per owner and key; a priority one beats any other, and of
+-- those the latest wins. Protected in combat. The controller UI binds its buttons this way (owner UIParent).
+local overrides, overrideOrder = {}, 0
+function SetOverrideBinding(owner, isPriority, k, command)
+	assert(not world.combat, "SetOverrideBinding in combat")
+	for i = #overrides, 1, -1 do
+		if overrides[i].owner == owner and overrides[i].key == k then table.remove(overrides, i) end
+	end
+	overrideOrder = overrideOrder + 1
+	overrides[#overrides + 1] = { owner = owner, priority = isPriority, key = k, command = command, order = overrideOrder }
+end
+function SetOverrideBindingClick(owner, isPriority, k, name, mouseButton)
+	SetOverrideBinding(owner, isPriority, k, "CLICK " .. name .. ":" .. (mouseButton or "LeftButton"))
+end
+function ClearOverrideBindings(owner)
+	assert(not world.combat, "ClearOverrideBindings in combat")
+	for i = #overrides, 1, -1 do if overrides[i].owner == owner then table.remove(overrides, i) end end
+end
+local function boundTo(k)
+	local best
+	for _, o in ipairs(overrides) do
+		if o.key == k and o.command ~= "" and (not best or (o.priority and not best.priority) or (o.priority == best.priority and o.order > best.order)) then best = o end
+	end
+	return best and best.command
+end
 
 -- Blizzard's focus manager: popups return focus to the frame they opened over; focusing a frame unfocuses
 -- the previous one (UnfocusGamepad), FocusGamepad on the new one.
@@ -159,6 +185,19 @@ end
 -- The controller: A while a text box takes focus (SmartNavigation clicks it); the menu dial, whose button
 -- comes up before Chat is chosen.
 local function padA(fn) poll(); held.PAD1 = true; fn(); poll(); held.PAD1 = nil; poll() end
+-- A controller button: whatever it's bound to (a binding's click: down and up, the button acting on up).
+local function pad(k)
+	poll()
+	held[k] = true
+	local command = boundTo(k)
+	local name = command and command:match("^CLICK (.-):")
+	if name and _G[name] then
+		local button = _G[name]
+		if W.hasTemplate(button.template, "SecureActionButtonTemplate") then secureClick(button) else button:Click() end
+	end
+	held[k] = nil
+	poll()
+end
 local function menuDial(fn) poll(); held.PADFORWARD = true; poll(); held.PADFORWARD = nil; fn() end
 
 -- A real keyboard, as the game delivers a key: to the text box with typing focus; else to keyboard-enabled
@@ -209,6 +248,8 @@ local function mouseClick(fn) poll(); W.fireEvent("GLOBAL_MOUSE_DOWN", "LeftButt
 
 function menuDialChat() menuDial(function() chatFrame:SetGamepadFocus() end) end
 
+for _, k in ipairs({ "PAD3", "PAD4", "PADLSHOULDER", "PADRSHOULDER" }) do SetOverrideBindingClick(UIParent, true, k, "Blizzard_" .. k) end
+
 -- ---- load ---------------------------------------------------------------------------------------------
 H.loadAddon({})
 check(SlashCmdList.GAMEPADKEYBOARD ~= nil and SLASH_GAMEPADKEYBOARD1 == "/gk", "/gk")
@@ -216,6 +257,7 @@ poll(); poll()
 check(W.focused == nil, "loading takes no typing focus (a text box of ours shown with auto-focus would keep every key)")
 
 local function keyboard() return GamepadKeyboardFrame end
+local CARET = "|cffffd100||r"
 local function key(k)
 	for _, f in ipairs(W.frames) do if f.parent == keyboard() and f.key == k and f.shown then return f end end
 end
@@ -233,7 +275,7 @@ check(not chatBox:HasFocus() and not chatBox.deactivated and chatBox.attrs.chatT
 	"the chat box stays open and keeps its whisper target (a placeholder space kept it from closing)")
 check(key("SHIFT").locked, "an empty chat line starts with Shift on")
 type("hi"); playerClick(key("SPACE")); type("there")
-check(chatBox:GetText() == "Hi there" and kb.Preview.text == "Hi there_", "keys type into the chat box (its own preview) - first letter capital")
+check(chatBox:GetText() == "Hi there" and kb.Preview.text == "Hi there" .. CARET, "keys type into the chat box (its own preview) - first letter capital")
 playerClick(key("BACK"))
 check(chatBox:GetText() == "Hi ther", "Del removes the last letter")
 kb:SmartNavigationCloseHandler() -- B
@@ -274,9 +316,9 @@ check(macros[#macros] == "/p Pull" and chatBox.attrs.stickyType == "PARTY", "par
 poll()
 openChat("SAY"); poll()
 playerClick(key("SYMBOLS")); playerClick(key("/")); playerClick(key("LETTERS")); type("p ")
-check(chatBox:GetText() == "" and kb.Preview.text == "_", "the preview shows what the box made of /p (party chat, nothing typed yet)")
+check(chatBox:GetText() == "" and kb.Preview.text == CARET, "the preview shows what the box made of /p (party chat, nothing typed yet)")
 type("hi")
-check(chatBox.attrs.chatType == "PARTY" and chatBox:GetText() == "hi" and kb.Preview.text == "hi_", "typing /p and a space switches to party, as typing does")
+check(chatBox.attrs.chatType == "PARTY" and chatBox:GetText() == "hi" and kb.Preview.text == "hi" .. CARET, "typing /p and a space switches to party, as typing does")
 playerClick(key("ENTER"))
 check(macros[#macros] == "/p hi", "...and Enter sends it to party")
 poll()
@@ -330,6 +372,60 @@ keyboardKey("ESCAPE")
 check(not kb:IsShown() and manager.focusedFrame == chatFrame and chatBox:GetText() == "Ok!", "closed by Escape on a real keyboard: same as B")
 chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 
+-- ---- the controller's X, Y, LB, RB: Del, Space, the cursor ---------------------------------------------------------
+check(boundTo("PAD3") == "CLICK Blizzard_PAD3:LeftButton", "(the controller UI's own X before the keyboard opens)")
+openChat("SAY"); poll()
+check(boundTo("PAD3") == "CLICK GamepadKeyboardDelKey:LeftButton" and boundTo("PAD4") == "CLICK GamepadKeyboardSpaceKey:LeftButton"
+	and boundTo("PADLSHOULDER") == "CLICK GamepadKeyboardCursorLeft:LeftButton" and boundTo("PADRSHOULDER") == "CLICK GamepadKeyboardCursorRight:LeftButton",
+	"with the keyboard open: X Del, Y Space, LB / RB the cursor")
+type("hi"); pad("PAD4"); type("you")
+check(chatBox:GetText() == "Hi you" and kb.Preview.text == "Hi you" .. CARET, "Y types a space")
+pad("PAD3")
+check(chatBox:GetText() == "Hi yo", "X deletes")
+pad("PADLSHOULDER"); pad("PADLSHOULDER")
+check(kb.Preview.text == "Hi " .. CARET .. "yo" and chatBox:GetText() == "Hi yo", "LB moves the cursor left (the preview shows it)")
+type("t")
+check(chatBox:GetText() == "Hi tyo" and kb.Preview.text == "Hi t" .. CARET .. "yo", "keys type at the cursor")
+pad("PAD3"); pad("PAD3")
+check(chatBox:GetText() == "Hiyo" and kb.Preview.text == "Hi" .. CARET .. "yo", "X deletes the letter before the cursor")
+for _ = 1, 5 do pad("PADLSHOULDER") end
+check(kb.Preview.text == CARET .. "Hiyo", "...not past the start")
+pad("PAD3")
+check(chatBox:GetText() == "Hiyo", "X at the start: nothing to delete")
+for _ = 1, 6 do pad("PADRSHOULDER") end
+check(kb.Preview.text == "Hiyo" .. CARET, "RB moves it right, not past the end")
+pad("PADLSHOULDER"); playerClick(key("SYMBOLS")); pad("PAD4"); playerClick(key("!")); pad("PAD3")
+check(chatBox:GetText() == "Hiy o" and kb.Preview.text == "Hiy " .. CARET .. "o", "on the symbols page too (Space, Del)")
+playerClick(key("LETTERS"))
+pad("PADLSHOULDER")
+playerClick(key("CHAT"))
+check(chatBox.attrs.chatType == "SAY" and kb.Preview.text == "Hiy" .. CARET .. " o", "the chat key keeps the cursor")
+-- The controller UI binding X over the keyboard's while it's open: the keyboard's again.
+SetOverrideBindingClick(UIParent, true, "PAD3", "Blizzard_Other")
+check(boundTo("PAD3") == "CLICK GamepadKeyboardDelKey:LeftButton", "the controller UI binding X over it while open: bound again")
+-- LT / RT to another window: the buttons are the controller UI's again; back to the keyboard: ours.
+local other = W.CreateFrame("Frame", "OtherPanel", UIParent)
+manager:FrameShown(other); poll()
+check(boundTo("PAD3") == "CLICK Blizzard_Other:LeftButton" and boundTo("PADLSHOULDER") == "CLICK Blizzard_PADLSHOULDER:LeftButton",
+	"the controller on another window: X / Y / LB / RB are the controller UI's again")
+focus(kb); manager:FrameHidden(other); poll()
+check(boundTo("PAD4") == "CLICK GamepadKeyboardSpaceKey:LeftButton", "back on the keyboard: ours again")
+kb:SmartNavigationCloseHandler()
+check(boundTo("PAD3") == "CLICK Blizzard_Other:LeftButton" and boundTo("PAD4") == "CLICK Blizzard_PAD4:LeftButton",
+	"closed: the controller UI's again at once")
+pad("PAD3")
+check(chatBox:GetText() == "Hiy o", "...and X doesn't touch the text then")
+chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+openChat("SAY"); poll()
+local long = string.rep("abcdefghij", 6) -- 60 letters
+chatBox.text = long; pad("PADRSHOULDER") -- (the keyboard reads the box at its next key)
+check(kb.Preview.text == "..." .. long:sub(13) .. CARET, "a long line: the preview shows the 48 letters before the cursor")
+for _ = 1, 50 do pad("PADLSHOULDER") end
+check(kb.Preview.text == long:sub(1, 10) .. CARET .. long:sub(11, 48) .. "...", "...and with the cursor near the start, the start")
+type("x")
+check(chatBox:GetText() == long:sub(1, 10) .. "X" .. long:sub(11), "(typed at the cursor in a long line)")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+
 -- ---- the chat key ------------------------------------------------------------------------------------------------
 openChat("SAY"); poll()
 local chatKey = key("CHAT")
@@ -341,7 +437,7 @@ check(chatBox.attrs.chatType == "SAY" and chatBox:GetText() == "Hi" and chatKey.
 world.party, world.guild = true, true
 lastTell, lastTellType = "Bob-Realm", "WHISPER"
 playerClick(chatKey)
-check(chatBox.attrs.chatType == "PARTY" and chatBox:GetText() == "Hi" and chatKey.text == "Party" and kb.Preview.text == "Hi_",
+check(chatBox.attrs.chatType == "PARTY" and chatBox:GetText() == "Hi" and chatKey.text == "Party" and kb.Preview.text == "Hi" .. CARET,
 	"in a party: Party next, the text kept")
 playerClick(chatKey)
 check(chatBox.attrs.chatType == "GUILD" and chatKey.text == "Guild" and chatBox:GetText() == "Hi", "...then Guild")
@@ -364,7 +460,7 @@ kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFra
 world.raid, world.instance = false, false
 openChat("SAY"); poll()
 playerClick(key("CHAT"))
-check(chatBox.attrs.chatType == "PARTY" and chatBox:GetText() == "" and kb.Preview.text == "_" and key("SHIFT").locked,
+check(chatBox.attrs.chatType == "PARTY" and chatBox:GetText() == "" and kb.Preview.text == CARET and key("SHIFT").locked,
 	"with nothing typed yet: switched, still nothing typed, Shift still on")
 type("go")
 playerClick(key("ENTER"))
@@ -553,7 +649,7 @@ W.fireEvent("PLAYER_REGEN_DISABLED")
 world.combat = true
 poll()
 check(not kb:IsShown() and chatBox:GetText() == "Pull" and chatBox.attrs.chatType == "PARTY", "combat starts: the keyboard closes, the text and chat type stay")
-check((W.blockedMessages or 0) == 0, "...nothing blocked")
+check((W.blockedMessages or 0) == 0 and boundTo("PAD4") == "CLICK Blizzard_PAD4:LeftButton", "...X / Y / LB / RB the controller UI's again, nothing blocked")
 before = #macros
 check(pcall(secureClick, enter) and #macros == before, "its Enter pressed in combat somehow: nothing set on it, nothing sent")
 world.combat = false

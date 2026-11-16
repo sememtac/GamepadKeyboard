@@ -14,6 +14,10 @@
 -- controller off the chat box, which would close an empty box and reset its chat type (a whisper target,
 -- say); a single space put in first keeps it open. Enter in any other box runs that box's own Enter action.
 --
+-- While it has the controller, X is Del, Y is Space, and LB / RB move the cursor left and right: override
+-- bindings that click those keys, as the game's controller UI binds its own buttons. Keys type at the
+-- cursor, which the preview shows.
+--
 -- For chat, a chat key steps through the chat types there are to use (Say, Party, Raid, Instance, Guild,
 -- a reply to the last whisper). It switches the way typing does: it puts the type's slash command before
 -- the text, and the chat box's own parsing switches the chat and keeps the text.
@@ -66,6 +70,7 @@ local page = "letters";
 local target; -- the text box being typed into
 local isChat = false;
 local text = "";
+local cursor = 0; -- characters before the cursor
 local shift = false;
 local handedBack; -- the box the keyboard just went back to: not opened for again until focus moves on
 local closing = false; -- while closing hands the controller back (which focuses the box again)
@@ -265,12 +270,37 @@ local function ChatLabel(box)
 	return CHAT_LABELS[chatType] or "Chat";
 end
 
-local function UpdatePreview()
-	local shown = text;
-	if Utf8Length(shown) > 48 then
-		shown = "..." .. shown:sub(-48);
+-- The byte just after the first `characters` characters of s.
+local function ByteAfter(s, characters)
+	local i = 1;
+	for _ = 1, characters do
+		if i > #s then
+			break;
+		end
+		i = i + 1;
+		while i <= #s and s:byte(i) >= 128 and s:byte(i) < 192 do
+			i = i + 1;
+		end
 	end
-	keyboard.Preview:SetText(shown .. "_");
+	return i;
+end
+
+local function Split(s, characters)
+	local at = ByteAfter(s, characters);
+	return s:sub(1, at - 1), s:sub(at);
+end
+
+-- The text with the cursor (a gold bar; "||" shows one "|"), at most 48 characters of it around the cursor.
+local CARET = "|cffffd100||r";
+local PREVIEW_LENGTH = 48;
+
+local function UpdatePreview()
+	local length = Utf8Length(text);
+	local first = math.max(0, math.min(cursor - PREVIEW_LENGTH + 8, length - PREVIEW_LENGTH));
+	local last = math.min(length, first + PREVIEW_LENGTH);
+	local before = select(2, Split(select(1, Split(text, cursor)), first));
+	local after = select(1, Split(select(2, Split(text, cursor)), last - cursor));
+	keyboard.Preview:SetText((first > 0 and "..." or "") .. before .. CARET .. after .. (last < length and "..." or ""));
 	if isChat and target then
 		for _, chatKey in ipairs(keyboard.ChatKeys) do
 			chatKey:SetText(ChatLabel(target));
@@ -292,11 +322,13 @@ local function UpdateLabels()
 	end
 end
 
-local function SetText(newText)
+local function SetText(newText, newCursor)
 	text = newText;
+	cursor = newCursor or Utf8Length(text);
 	if target then
 		target:SetText(text);
 		text = target:GetText() or ""; -- the box may change it (chat: "/p " switches to party chat)
+		cursor = math.min(cursor, Utf8Length(text));
 	end
 	UpdatePreview();
 end
@@ -305,13 +337,18 @@ end
 -- what's in it. A chat box holding only the placeholder is still empty.
 local function Sync()
 	local current = target and target:GetText() or "";
-	if not (isChat and current == PLACEHOLDER and text == "") then
+	if not (isChat and current == PLACEHOLDER and text == "") and current ~= text then
 		text = current;
+		cursor = Utf8Length(text);
 	end
 end
 
-local function DeleteLast()
-	SetText((text:gsub("[%z\1-\127\194-\244][\128-\191]*$", "")));
+-- The character before the cursor.
+local function DeleteBack()
+	if cursor > 0 then
+		local before, after = Split(text, cursor);
+		SetText(select(1, Split(before, cursor - 1)) .. after, cursor - 1);
+	end
 end
 
 local function Insert(characters)
@@ -319,7 +356,16 @@ local function Insert(characters)
 	if maxLetters > 0 and Utf8Length(text) + Utf8Length(characters) > maxLetters then
 		return;
 	end
-	SetText(text .. characters);
+	local before, after = Split(text, cursor);
+	SetText(before .. characters .. after, cursor + Utf8Length(characters));
+end
+
+local function MoveCursor(step)
+	if target then
+		Sync();
+		cursor = math.max(0, math.min(Utf8Length(text), cursor + step));
+		UpdatePreview();
+	end
 end
 
 -- The page's keys, the chat key only for chat; each row centred over the keys it shows.
@@ -364,7 +410,10 @@ local function NextChatType()
 		end
 	end
 	local nextType = available[current % #available + 1];
+	local keep = cursor;
 	SetText(nextType.command .. " " .. text);
+	cursor = math.min(keep, Utf8Length(text));
+	UpdatePreview();
 end
 
 local function Close()
@@ -377,7 +426,7 @@ local function Press(button)
 	local key = button.key;
 	Sync();
 	if key == BACK then
-		DeleteLast();
+		DeleteBack();
 	elseif key == SPACE then
 		Insert(" ");
 	elseif key == SHIFT then
@@ -491,13 +540,22 @@ local function EnterPostClick(button)
 	end
 end
 
+-- The keys X and Y press (the first of each, on either page): a binding clicks a button by name.
+local SHORTCUT_KEYS = { [BACK] = "GamepadKeyboardDelKey", [SPACE] = "GamepadKeyboardSpaceKey" };
+local named = {};
+
 local function CreateKey(key)
 	local special = SPECIAL_KEYS[key];
 	local units = special and special.units or 1;
+	local name = SHORTCUT_KEYS[key];
+	if named[key] then
+		name = nil;
+	end
+	named[key] = named[key] or name ~= nil;
 	local button;
 	if key == ENTER then
 		-- Blizzard's secure macro action, on release (a controller's A and a mouse click both act).
-		button = CreateFrame("Button", nil, keyboard, "SecureActionButtonTemplate, UIPanelButtonTemplate");
+		button = CreateFrame("Button", name, keyboard, "SecureActionButtonTemplate, UIPanelButtonTemplate");
 		button:RegisterForClicks("AnyUp");
 		button:SetAttribute("type", "macro");
 		button:SetAttribute("useOnKeyDown", false);
@@ -505,7 +563,7 @@ local function CreateKey(key)
 		button:SetScript("PreClick", EnterPreClick);
 		button:SetScript("PostClick", EnterPostClick);
 	else
-		button = CreateFrame("Button", nil, keyboard, "UIPanelButtonTemplate");
+		button = CreateFrame("Button", name, keyboard, "UIPanelButtonTemplate");
 		button:SetScript("OnClick", Press);
 	end
 	button.width = units * KEY_WIDTH + (units - 1) * GAP;
@@ -514,6 +572,56 @@ local function CreateKey(key)
 	button.key = key;
 	return button;
 end
+
+-- X, Y, LB and RB while the keyboard has the controller. The controller UI binds its buttons the same way (priority
+-- override bindings, owner UIParent) and the latest binding of a button wins, so they're bound again when it
+-- binds one of these over them (seen by post-hooking the binding functions). Cleared as soon as the
+-- controller leaves the keyboard: the buttons are the controller UI's (and the crossbar's) again. Only out of combat (the
+-- keyboard is closed in combat).
+local SHORTCUTS = {
+	[GAMEPAD_FACE_LEFT or "PAD3"] = SHORTCUT_KEYS[BACK],
+	[GAMEPAD_FACE_TOP or "PAD4"] = SHORTCUT_KEYS[SPACE],
+	[GAMEPAD_SHOULDER_LEFT or "PADLSHOULDER"] = "GamepadKeyboardCursorLeft",
+	[GAMEPAD_SHOULDER_RIGHT or "PADRSHOULDER"] = "GamepadKeyboardCursorRight",
+};
+local shortcutsBound = false;
+
+local function BindShortcuts()
+	ClearOverrideBindings(keyboard);
+	for button, keyName in pairs(SHORTCUTS) do
+		SetOverrideBindingClick(keyboard, true, button, keyName);
+	end
+	shortcutsBound = true;
+end
+
+local function ClearShortcuts()
+	if shortcutsBound and not InCombatLockdown() then
+		ClearOverrideBindings(keyboard);
+		shortcutsBound = false;
+	end
+end
+
+local function UpdateShortcuts()
+	if InCombatLockdown() then
+		return;
+	end
+	local manager = GetManager();
+	if keyboard and keyboard:IsShown() and manager and manager.focusedFrame == keyboard then
+		if not shortcutsBound then
+			BindShortcuts();
+		end
+	else
+		ClearShortcuts();
+	end
+end
+
+local function BoundOver(owner, _, button)
+	if shortcutsBound and owner ~= keyboard and SHORTCUTS[button] and not InCombatLockdown() then
+		BindShortcuts();
+	end
+end
+hooksecurefunc("SetOverrideBindingClick", BoundOver);
+hooksecurefunc("SetOverrideBinding", BoundOver);
 
 local function CreatePrompt(key, label, anchorTo)
 	local icon = CreateFrame("Frame", nil, keyboard, "InputIconTextureFrameTemplate");
@@ -573,8 +681,22 @@ local function CreateKeyboard()
 		end
 	end
 
+	-- LB / RB press these (hidden: not keys to move to).
+	for name, step in pairs({ GamepadKeyboardCursorLeft = -1, GamepadKeyboardCursorRight = 1 }) do
+		local button = CreateFrame("Button", name, keyboard);
+		button:SetScript("OnClick", function()
+			MoveCursor(step);
+		end);
+		button:Hide();
+	end
+
 	keyboard.Prompts = { CreatePrompt(GAMEPAD_FACE_BOTTOM, "Type") };
-	table.insert(keyboard.Prompts, CreatePrompt(GAMEPAD_FACE_RIGHT, "Back", keyboard.Prompts[1].text));
+	for _, prompt in ipairs({
+		{ GAMEPAD_FACE_LEFT, "Del" }, { GAMEPAD_FACE_TOP, "Space" }, { GAMEPAD_FACE_RIGHT, "Back" },
+		{ GAMEPAD_SHOULDER_LEFT, "" }, { GAMEPAD_SHOULDER_RIGHT, "Cursor" },
+	}) do
+		table.insert(keyboard.Prompts, CreatePrompt(prompt[1], prompt[2], keyboard.Prompts[#keyboard.Prompts].text));
+	end
 
 	keyboard.CloseButton:SetScript("OnClick", Close);
 	-- Controller B: go back, rather than Blizzard's gamepad UI pressing the close button.
@@ -604,6 +726,7 @@ local function CreateKeyboard()
 			target:SetText("");
 		end
 		handedBack = target;
+		ClearShortcuts();
 		closing = true;
 		Unregister();
 		closing = false;
@@ -642,6 +765,7 @@ local function Open(box)
 	target = box;
 	isChat = box.chatFrame ~= nil;
 	text = box:GetText() or "";
+	cursor = Utf8Length(text);
 	if isChat and text == "" then
 		-- Keeps the chat box open, and its chat type, while the controller is on the keyboard.
 		box:SetText(PLACEHOLDER);
@@ -748,6 +872,7 @@ watcher:SetScript("OnUpdate", function()
 	if lastInput ~= "gamepad" and PadButtonDown() then
 		lastInput = "gamepad";
 	end
+	UpdateShortcuts();
 	-- Open over chat, the chat box has no typing focus (the controller is here). Getting it back means a
 	-- real keyboard (Enter, /) or the mouse took the chat: this keyboard steps aside, the text stays.
 	if keyboard and keyboard:IsShown() and isChat and target then
@@ -777,8 +902,11 @@ watcher:SetScript("OnEvent", function(_, event)
 		lastInput = "mouse";
 	elseif event == "PLAYER_REGEN_DISABLED" then
 		Close(); -- the text stays in the box
-	elseif keyboard and not keyboard:IsShown() and registered then
-		Unregister(); -- a hide Blizzard refused as combat started
+	elseif keyboard and not keyboard:IsShown() then
+		ClearShortcuts(); -- if combat stopped it as the keyboard closed
+		if registered then
+			Unregister(); -- a hide Blizzard refused as combat started
+		end
 	end
 end);
 

@@ -6,7 +6,20 @@ When you go to a text box with the controller - A on a name box or a search box,
 the keyboard opens on top of the window the box belongs to. It joins Blizzard's gamepad UI like the game's own
 panels: the D-pad moves between keys (left / right along a row, up / down between rows), A types,
 **Enter** does what the Enter key does, B goes back without it, LT / RT switch windows. Each key types
-straight into the text box.
+straight into the text box, at the cursor (the gold bar in the preview line).
+
+While the keyboard has the controller:
+
+| Button | Does |
+| --- | --- |
+| A | the key it's on |
+| X | Del (the letter before the cursor) |
+| Y | Space |
+| LB / RB | move the cursor left / right |
+| B | back, without Enter |
+
+The footer shows these. On another window (LT / RT) or with the keyboard closed, X, Y, LB and RB are
+the game's again.
 
 ## Chat
 
@@ -67,7 +80,14 @@ Text-box focus is hooked on the method table all text boxes share, taken from Bl
 box made with `CreateFrame` is shown with auto-focus on and takes the real keyboard at login (0.2 to 0.4.1
 did that, so after a reload no key worked until something else took focus). Open over chat, the chat box has no typing focus; when it gets it back (Blizzard's Enter
 binding is `OpenChat(nil)`, which keeps the text), the keyboard closes. It reads the box before each key,
-so text typed into a box that kept focus is carried on, not overwritten. The keyboard is a popup in Blizzard's gamepad UI
+so text typed into a box that kept focus is carried on, not overwritten.
+
+X, Y, LB and RB are override bindings (`SetOverrideBindingClick`, owner: the keyboard) that click its Del
+and Space keys and two hidden cursor buttons - the way the game's controller UI binds its own buttons
+(priority override bindings, owner `UIParent`; the latest binding of a button wins). They're bound while
+the keyboard has the controller (`focusedFrame`), bound again if the controller UI binds one of those
+buttons over them (post-hooks on `SetOverrideBindingClick` / `SetOverrideBinding`), and cleared when the
+controller leaves the keyboard or it closes - before combat locks bindings. The keyboard is a popup in Blizzard's gamepad UI
 (`HandlePopupShown` / `HandlePopupHide`, the functions it wraps for addons), so closing it returns the
 controller to the window the box belongs to. For a chat box, a single space is put in before the keyboard
 takes the controller: that keeps Blizzard from closing the empty box and resetting its chat type (a whisper
@@ -84,7 +104,7 @@ secure, the keyboard is a protected frame; it only opens out of combat and close
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 105 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 125 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
 focus, the menu dial's button already up), and real-keyboard keys delivered as the game delivers them
@@ -98,6 +118,9 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
       still the chat type next time; `/2 hello` goes to channel 2; `/dance` dances; `/cast` a spell
       casts it.
 - [ ] B: back on the chat box with the text and "A Send" showing; A sends it.
+- [ ] X deletes, Y types a space, LB / RB move the gold cursor, and keys type at the cursor. With the
+      controller on another window (LT / RT) or the keyboard closed, X / Y / LB / RB do what they did before
+      (crossbar, the window's own actions).
 - [ ] The chat key: in a group it goes Say -> Party (-> Raid / Instance / Guild / To <last whisperer>) and
       back to Say, the chat box's header changes with it, the text stays, and Enter sends to that chat.
 - [ ] LT / RT move between the keyboard and other open windows.
