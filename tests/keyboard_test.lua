@@ -158,6 +158,10 @@ chatBox.scripts.OnTextChanged = function(self)
 	end
 end
 chatFrame.editBox = chatBox
+-- ChatFrameEditBoxBaseMixin's setters (attributes) and the header (ChatFrameEditBoxMixin:UpdateHeader).
+function chatBox:SetChatType(chatType) self.attrs.chatType = chatType end
+function chatBox:SetTellTarget(tellTarget) self.attrs.tellTarget = tellTarget end
+function chatBox:UpdateHeader() self.header = self.attrs.chatType .. ":" .. tostring(self.attrs.tellTarget) end
 function chatFrame:FocusGamepad() chatBox:SetFocus() end
 function chatFrame:UnfocusGamepad() chatBox:ClearFocus() end
 function chatFrame:SetGamepadFocus() GamepadMode.FrameControlsManager:FrameShown(self) end -- the menu dial's Chat
@@ -855,12 +859,54 @@ check(chatBox.attrs.chatType == "GUILD" and key("CHAT").text == "Guild", "typing
 kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 openChat("WHISPER", "Alice"); poll()
 check(key("CHAT").text == "To Alice", "a whisper shows who to")
+type("hey")
 playerClick(key("CHAT"))
-check(chatBox.attrs.chatType == "SAY", "...and a whisper to someone other than the last one goes on to Say")
+check(chatBox.attrs.chatType == "WHISPER" and chatBox.attrs.tellTarget == "Bob-Realm" and key("CHAT").text == "To Bob",
+	"...from a whisper to someone else, on to the reply to whoever whispered last")
+playerClick(key("CHAT"))
+check(chatBox.attrs.chatType == "SAY", "...then round to Say")
+playerClick(key("CHAT")); playerClick(key("CHAT"))
+check(chatBox.attrs.chatType == "GUILD", "(Party, Guild)")
+playerClick(key("CHAT"))
+check(chatBox.attrs.chatType == "WHISPER" and chatBox.attrs.tellTarget == "Alice" and key("CHAT").text == "To Alice"
+	and chatBox.header == "WHISPER:Alice" and chatBox:GetText() == "Hey",
+	"...and back to the whisper the chat was opened in: offered, its header, the text kept")
+lastTell = "Alice"
+playerClick(key("CHAT")); playerClick(key("CHAT")); playerClick(key("CHAT")); playerClick(key("CHAT"))
+check(chatBox.attrs.chatType == "WHISPER" and chatBox.attrs.tellTarget == "Alice", "(round to Alice)")
+playerClick(key("CHAT"))
+check(chatBox.attrs.chatType == "SAY", "she whispers meanwhile (the reply is to her now): offered once")
+playerClick(key("CHAT")); playerClick(key("CHAT")); playerClick(key("CHAT"))
+lastTell = "Bob-Realm"
+playerClick(key("ENTER"))
+check(macros[#macros] == "/w Alice Hey", "Enter sends it to her")
 kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 openChat("WHISPER", "Bob-Realm"); poll()
 playerClick(key("CHAT"))
 check(chatBox.attrs.chatType == "SAY", "the reply already picked: on to Say")
+playerClick(key("CHAT")); playerClick(key("CHAT")); playerClick(key("CHAT"))
+check(chatBox.attrs.chatType == "WHISPER" and chatBox.attrs.tellTarget == "Bob-Realm" and playerClick(key("CHAT")) == nil
+	and chatBox.attrs.chatType == "SAY", "...the whisper and the reply to the same person: offered once")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+-- A Battle.net whisper (opened from the friends list): offered back too (its name can't be typed in).
+openChat("BN_WHISPER", "|Kq7|k"); poll()
+playerClick(key("CHAT"))
+check(chatBox.attrs.chatType == "WHISPER" and chatBox.attrs.tellTarget == "Bob-Realm", "(a Battle.net whisper: on to the reply)")
+playerClick(key("CHAT")); playerClick(key("CHAT")); playerClick(key("CHAT")); playerClick(key("CHAT"))
+check(chatBox.attrs.chatType == "BN_WHISPER" and chatBox.attrs.tellTarget == "|Kq7|k", "...and back to the Battle.net whisper")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+-- Typing /w and a name switches to a whisper, which is offered back after other types.
+lastTell, lastTellType = nil, nil
+openChat("SAY"); poll()
+playerClick(key("CHAT")); playerClick(key("CHAT")); playerClick(key("CHAT"))
+check(chatBox.attrs.chatType == "SAY", "a new chat: no whisper from before offered (Say, Party, Guild, Say)")
+chatBox.attrs.chatType, chatBox.attrs.tellTarget = "WHISPER", "Carol" -- (as "/w Carol " typed does)
+pad("PADRSHOULDER") -- (the keyboard sees the box at its next key)
+playerClick(key("CHAT")); playerClick(key("CHAT"))
+check(chatBox.attrs.chatType == "PARTY", "(Say, Party)")
+playerClick(key("CHAT")); playerClick(key("CHAT"))
+check(chatBox.attrs.chatType == "WHISPER" and chatBox.attrs.tellTarget == "Carol", "a whisper typed in is offered back too")
+lastTell, lastTellType = "Bob-Realm", "WHISPER"
 kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 openChat("WHISPER", "Christopherson"); poll()
 check(key("CHAT").text == "To Christop..", "a long name is cut to fit")

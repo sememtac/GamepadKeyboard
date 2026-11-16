@@ -80,6 +80,7 @@ local target; -- the text box being typed into
 local isChat = false;
 local suggesting = false; -- the box looks names up (a row of name keys above the keys)
 local suggestions = {}; -- the name keys
+local whisperedTo; -- the whisper this chat was in while the keyboard was up: { chatType, target }
 local lastNamesBox; -- the last box typed into that isn't chat (for /gk names)
 local text = "";
 local cursor = 0; -- characters before the cursor
@@ -273,13 +274,12 @@ local function LastTell()
 	end
 end
 
-local CHAT_TYPES = { -- Reply last: from it, round to Say
+local CHAT_TYPES = { -- then the whispers (see ChatTypesToUse)
 	{ chatType = "SAY", command = "/s" },
 	{ chatType = "PARTY", command = "/p", available = function() return IsInGroup(LE_PARTY_CATEGORY_HOME) end },
 	{ chatType = "RAID", command = "/ra", available = function() return IsInRaid(LE_PARTY_CATEGORY_HOME) end },
 	{ chatType = "INSTANCE_CHAT", command = "/i", available = function() return IsInGroup(LE_PARTY_CATEGORY_INSTANCE) end },
 	{ chatType = "GUILD", command = "/g", available = function() return IsInGuild() end },
-	{ reply = true, command = "/r", available = function() return LastTell() ~= nil end },
 };
 local CHAT_LABELS = {
 	SAY = "Say", PARTY = "Party", RAID = "Raid", INSTANCE_CHAT = "Instance", GUILD = "Guild", OFFICER = "Officer",
@@ -388,6 +388,11 @@ local function UpdatePreview()
 	if isChat and target then
 		for _, chatKey in ipairs(keyboard.ChatKeys) do
 			chatKey:SetText(ChatLabel(target));
+		end
+		-- A whisper to someone other than whoever whispered last (they're the reply, always offered).
+		local chatType, tellTarget = target:GetAttribute("chatType"), target:GetAttribute("tellTarget");
+		if IsWhisper(chatType) and tellTarget and tellTarget ~= LastTell() then
+			whisperedTo = { chatType = chatType, target = tellTarget };
 		end
 	end
 	UpdateSuggestions();
@@ -501,24 +506,46 @@ end
 
 -- The next chat type there is to use, after the box's own: its slash command goes before the text, and the
 -- chat box's parsing (as when typing it) switches the chat and leaves the text.
-local function NextChatType()
-	local available = {};
+-- The chat types there are to use, then the whispers: the one this chat was in (opened from a name, say)
+-- and a reply to whoever whispered last, once each.
+local function ChatTypesToUse()
+	local list = {};
 	for _, entry in ipairs(CHAT_TYPES) do
 		if not entry.available or entry.available() then
-			available[#available + 1] = entry;
+			list[#list + 1] = entry;
 		end
 	end
-	-- After the box's own type; from anything else (a reply - always last - a whisper, a channel): Say.
-	local chatType = target:GetAttribute("chatType");
+	local lastTell, lastTellType = LastTell();
+	if whisperedTo and whisperedTo.target ~= lastTell then
+		list[#list + 1] = whisperedTo;
+	end
+	if lastTell then
+		list[#list + 1] = { chatType = lastTellType, target = lastTell };
+	end
+	return list;
+end
+
+local function NextChatType()
+	-- After the box's own type (a whisper: by who it's to); from anything else (a channel, say): Say.
+	local list = ChatTypesToUse();
+	local chatType, tellTarget = target:GetAttribute("chatType"), target:GetAttribute("tellTarget");
 	local current = 0;
-	for i, entry in ipairs(available) do
-		if entry.chatType == chatType then
+	for i, entry in ipairs(list) do
+		if entry.target and IsWhisper(chatType) and entry.target == tellTarget or not entry.target and entry.chatType == chatType then
 			current = i;
 		end
 	end
-	local nextType = available[current % #available + 1];
+	local nextType = list[current % #list + 1];
 	local keep = cursor;
-	SetText(nextType.command .. " " .. text);
+	if nextType.target then
+		-- A whisper as the chat's parser makes it (its tell target, its type, the header): a name can't be
+		-- typed in for it - "/w Name " waits while the name could still grow, a Battle.net name can't be typed.
+		target:SetTellTarget(nextType.target);
+		target:SetChatType(nextType.chatType);
+		target:UpdateHeader();
+	else
+		SetText(nextType.command .. " " .. text);
+	end
 	cursor = math.min(keep, Utf8Length(text));
 	UpdatePreview();
 end
@@ -1005,6 +1032,7 @@ end
 local function SetTarget(box)
 	target = box;
 	chatHadFocus = nil; -- a new box: no focus seen yet
+	whisperedTo = nil; -- (the box's own, if it's in one, at the next preview)
 	isChat = box.chatFrame ~= nil;
 	suggesting = Setting("names") and LooksUpNames(box);
 	if not isChat then

@@ -34,9 +34,12 @@ stays on a fresh line in the same chat; B closes it.
 
 The **chat key** (bottom row, beside Space) shows who you're talking to - Say, Party, To Bob, /2 - and
 steps on to the next chat type there is to use: Say, Party (in a group), Raid (in a raid), Instance (in an
-instance group), Guild (in a guild), and a reply to whoever whispered you last. What you've typed stays.
+instance group), Guild (in a guild), the whisper the chat was in (opened from a name or the friends
+list, or typed with `/w`), and a reply to whoever whispered you last. What you've typed stays.
 It switches as typing `/p ` does - the type's slash command goes in front of the text and the chat box's
-own parsing switches the chat - so it's the same as typing the prefix yourself.
+own parsing switches the chat - so it's the same as typing the prefix yourself. A whisper is set as the
+chat's parser sets it (tell target, type, header): a name can't be typed in for it reliably, and a
+Battle.net name can't be typed at all.
 
 **B** goes back to the chat box with the text instead, unsent; the chat's own **A Send** sends it from
 there. Enter does that too, with a note in the chat, for the few lines it can't send itself: Battle.net
@@ -170,7 +173,7 @@ multiplied by its scale when kept and divided when used - so it stays put at any
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 212 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 224 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
 focus, the menu dial's button already up), and real-keyboard keys delivered as the game delivers them
