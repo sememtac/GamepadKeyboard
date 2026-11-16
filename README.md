@@ -67,6 +67,11 @@ Whichever you're using has the text box:
   then; a real keyboard types as always. If combat starts while it's open, it closes and the text stays.
 - **Where it opens**: beside the chat window for chat, near the text box otherwise. Drag it with the mouse
   and it opens there from then on; `/gk reset` puts it back.
+- **Another text box in the same window** (the mail's Subject:): LT / RT to the window, D-pad to the box,
+  A on it - the keyboard types there from then on; LT / RT back to the keyboard. A real keyboard or a
+  mouse click in another box makes it step aside instead.
+- **No names showing** in a box that should have them: type a few letters in it with the keyboard, then
+  `/gk names` says what the game's name lookup finds for it (or why it doesn't run).
 - **Bringing it back** after going back to a text box (or after the real keyboard took over): A on the box
   again, or Chat on the menu dial again.
 - `/gk off` stops it opening by itself; `/gk on` turns it back on.
@@ -124,7 +129,7 @@ A picked name goes in as Blizzard's list puts it (`Ambiguate(name, "none")`, the
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 148 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 160 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
 focus, the menu dial's button already up), and real-keyboard keys delivered as the game delivers them
@@ -143,6 +148,8 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
 - [ ] X deletes, Y types a space, LB / RB move the gold cursor, and keys type at the cursor. With the
       controller on another window (LT / RT) or the keyboard closed, X / Y / LB / RB do what they did before
       (crossbar, the window's own actions).
+- [ ] Mail: To:, then LT, down to Subject:, A, LT back: the keys type into Subject:; back to To: the same
+      way, they type into To: again.
 - [ ] Mail To:: typing a few letters shows up to four names above the keys; D-pad up and A puts one in, and
       the mail can be sent to it.
 - [ ] The chat key: in a group it goes Say -> Party (-> Raid / Instance / Guild / To <last whisperer>) and

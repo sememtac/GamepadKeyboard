@@ -76,6 +76,7 @@ local target; -- the text box being typed into
 local isChat = false;
 local suggesting = false; -- the box looks names up (a row of name keys above the keys)
 local suggestions = {}; -- the name keys
+local lastNamesBox; -- the last box typed into that isn't chat (for /gk names)
 local text = "";
 local cursor = 0; -- characters before the cursor
 local shift = false;
@@ -319,7 +320,9 @@ end
 local function UpdateSuggestions()
 	local names = {};
 	if suggesting and target and text ~= "" then
-		local results = C_AutoComplete.GetAutoCompleteResults(text, MAX_SUGGESTIONS + 1, cursor, true, unpack(target.autoCompleteParams)) or {};
+		-- Protected: a lookup that fails leaves no names, never a key press half done (and /gk names says why).
+		local ok, results = pcall(C_AutoComplete.GetAutoCompleteResults, text, MAX_SUGGESTIONS + 1, cursor, true, unpack(target.autoCompleteParams));
+		results = ok and type(results) == "table" and results or {};
 		if not (#results == 1 and results[1].name == text) then -- the name already typed: nothing to pick
 			for i = 1, math.min(#results, MAX_SUGGESTIONS) do
 				names[i] = results[i].name;
@@ -859,7 +862,6 @@ local function CreateKeyboard()
 		end
 		Register();
 		RefreshNavigation();
-		chatHadFocus = nil;
 	end);
 	-- However it closes (Enter, B, Escape, combat): back to the window the box belongs to, which focuses the
 	-- box again - not a request for the keyboard - and the box isn't opened for again until focus moves
@@ -902,13 +904,14 @@ local function Position(box)
 	end
 end
 
-local function Open(box)
-	if not keyboard then
-		CreateKeyboard();
-	end
+local function SetTarget(box)
 	target = box;
+	chatHadFocus = nil; -- a new box: no focus seen yet
 	isChat = box.chatFrame ~= nil;
 	suggesting = LooksUpNames(box);
+	if not isChat then
+		lastNamesBox = box;
+	end
 	text = box:GetText() or "";
 	cursor = Utf8Length(text);
 	if isChat and text == "" then
@@ -917,6 +920,13 @@ local function Open(box)
 	end
 	page = "letters";
 	shift = isChat and text == "";
+end
+
+local function Open(box)
+	if not keyboard then
+		CreateKeyboard();
+	end
+	SetTarget(box);
 	Position(box);
 	keyboard:Show();
 end
@@ -970,6 +980,24 @@ local function ShouldOpen(box)
 		and box:IsObjectType("EditBox")
 		and not box:IsForbidden()
 		and box:IsVisible();
+end
+
+-- Typing focus went to another text box while the keyboard is open. The controller's doing (LT to the
+-- window, A on another box): the keyboard types there now - in place, the controller staying where it is
+-- (back to the keyboard with LT / RT). A real keyboard's or the mouse's: the keyboard steps aside.
+local function SwitchTo(box)
+	if not (ControllerAsked() and box:IsObjectType("EditBox") and not box:IsForbidden() and box:IsVisible()) then
+		Close();
+		return;
+	end
+	if isChat and target and target:GetText() == PLACEHOLDER then
+		target:SetText(""); -- the chat box it leaves, as it was
+	end
+	SetTarget(box);
+	Layout();
+	UpdateLabels();
+	UpdatePreview();
+	RefreshNavigation();
 end
 
 -------------------------------------------------------------------------------
@@ -1033,6 +1061,12 @@ watcher:SetScript("OnUpdate", function()
 		return;
 	end
 	lastFocus = focus;
+	if keyboard and keyboard:IsShown() then
+		if focus and focus ~= target then
+			SwitchTo(focus);
+		end
+		return;
+	end
 	if focus ~= handedBack then
 		handedBack = nil;
 		if focus and ShouldOpen(focus) then
@@ -1056,6 +1090,30 @@ watcher:SetScript("OnEvent", function(_, event)
 	end
 end);
 
+-- /gk names: what the name lookup does for the last box typed into (for a box that should show names).
+local function DescribeNames(box)
+	local name = box:GetName() or "That text box";
+	if not LooksUpNames(box) then
+		Print(("%s doesn't look names up as the keyboard sees it (lookup: %s, Blizzard's: %s, include / exclude: %s, own handler: %s)."):format(
+			name, tostring(box.autoCompleteSource ~= nil),
+			tostring(C_AutoComplete ~= nil and box.autoCompleteSource == C_AutoComplete.GetAutoCompleteResults),
+			type(box.autoCompleteParams) == "table" and table.concat(box.autoCompleteParams, " / ") or "none",
+			tostring(box.customAutoCompleteFunction ~= nil)));
+		return;
+	end
+	local typed = box:GetText() or "";
+	local ok, results = pcall(C_AutoComplete.GetAutoCompleteResults, typed, MAX_SUGGESTIONS + 1, Utf8Length(typed), true, unpack(box.autoCompleteParams));
+	if not ok then
+		Print(("%s: the lookup for \"%s\" failed: %s"):format(name, typed, tostring(results)));
+		return;
+	end
+	local found = {};
+	for i, result in ipairs(type(results) == "table" and results or {}) do
+		found[i] = tostring(result.name);
+	end
+	Print(("%s: \"%s\" finds %s."):format(name, typed, #found > 0 and table.concat(found, ", ") or "nobody"));
+end
+
 SLASH_GAMEPADKEYBOARD1 = "/gk";
 SLASH_GAMEPADKEYBOARD2 = "/gamepadkeyboard";
 SlashCmdList.GAMEPADKEYBOARD = function(message)
@@ -1063,6 +1121,12 @@ SlashCmdList.GAMEPADKEYBOARD = function(message)
 	if message == "reset" then
 		DB().position = nil;
 		Print("back to its usual place.");
+	elseif message == "names" then
+		if lastNamesBox then
+			DescribeNames(lastNamesBox);
+		else
+			Print("type in a text box with the keyboard first (the mail's To:, say), then /gk names.");
+		end
 	elseif message == "on" or message == "off" then
 		DB().autoOpen = message == "on";
 		Print(message == "on" and "opens when a text box gets focus with the controller."

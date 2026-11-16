@@ -38,6 +38,7 @@ local lastTell, lastTellType -- whoever whispered last
 local ROSTER = { "Bob", "Bobby", "Boris-Other", "Bonnie", "Bodhi", "Alice" }
 C_AutoComplete = { GetAutoCompleteResults = function(text, numResults, cursorPosition, allowFullMatch, include, exclude)
 	assert(include == 1 and exclude == 0, "the box's own include / exclude")
+	if world.lookupFails then error("lookup unavailable") end
 	local results = {}
 	for _, name in ipairs(ROSTER) do
 		if name:lower():sub(1, #text) == text:lower() and #results < numResults then results[#results + 1] = { name = name, priority = 1 } end
@@ -568,6 +569,58 @@ check(mailTo:GetText() == "Bobb" and shownNames() == "Bobby", "Del: the names fo
 type("x")
 check(shownNames() == "", "no one by that name: no names")
 kb:SmartNavigationCloseHandler(); mailTo:ClearFocus(); mailTo.text = ""; manager:FrameHidden(mail); poll()
+-- Moving between the mail's boxes while the keyboard is open: LT to the mail window, A on another box.
+local subject = W.CreateFrame("EditBox", "SendMailSubjectEditBox", mail, "InputBoxTemplate")
+subject.center = { 400, 650 }
+manager:FrameShown(mail)
+padA(function() mailTo:SetFocus() end)
+type("bo")
+focus(mail); poll()
+padA(function() subject:SetFocus() end)
+check(kb:IsShown() and preview() == "|" and shownNames() == "" and kb.height == 84 + 5 * 34,
+	"A on the Subject: while the keyboard is open: it types there now (no names there)")
+focus(kb); poll()
+type("hi")
+check(subject:GetText() == "hi" and mailTo:GetText() == "bo", "...the letters go into the Subject:, To: keeps its own")
+focus(mail); poll()
+padA(function() mailTo:SetFocus() end)
+check(preview() == "bo|" and shownNames() == "Bob,Bobby,Boris-Other,Bonnie" and kb.height == 84 + 6 * 34,
+	"back to To:: it types there again, with its names")
+focus(kb); poll()
+type("b")
+check(mailTo:GetText() == "bob" and subject:GetText() == "hi", "...and the letters go there")
+SlashCmdList.GAMEPADKEYBOARD("names")
+check(world.printed[#world.printed]:find('SendMailNameEditBox: "bob" finds Bob, Bobby', 1, true) ~= nil,
+	"/gk names: what the lookup finds for the box (" .. world.printed[#world.printed] .. ")")
+world.lookupFails = true
+type("x")
+check(mailTo:GetText() == "bobx" and preview() == "bobx|" and shownNames() == "", "a lookup that fails: typing goes on, no names")
+SlashCmdList.GAMEPADKEYBOARD("names")
+check(world.printed[#world.printed]:find("failed", 1, true) and world.printed[#world.printed]:find("lookup unavailable", 1, true),
+	"...and /gk names says why")
+world.lookupFails = false
+mouseClick(function() subject:SetFocus() end)
+check(not kb:IsShown() and subject:HasFocus(), "a mouse click on another box while it's open: it steps aside")
+subject:ClearFocus(); mailTo.text = ""; subject.text = ""; manager:FrameHidden(mail); poll()
+padA(function() subject:SetFocus() end)
+kb:SmartNavigationCloseHandler(); subject:ClearFocus(); poll()
+SlashCmdList.GAMEPADKEYBOARD("names")
+check(world.printed[#world.printed]:find("SendMailSubjectEditBox doesn't look names up", 1, true) ~= nil,
+	"/gk names for a box without a lookup says so")
+
+-- Leaving the chat box for another box: the chat box as it was (no placeholder left in it).
+openChat("SAY"); poll()
+check(chatBox:GetText() == " ", "(the chat's placeholder while the keyboard is open)")
+manager:FrameShown(mail); focus(mail); poll()
+padA(function() mailTo:SetFocus() end)
+check(kb:IsShown() and preview() == "|" and chatBox:GetText() == "" and key("CHAT") == nil, "leaving the chat box for To:: no placeholder left in chat, no chat key")
+focus(kb); poll()
+padA(function() focus(chatFrame) end) -- LT to the chat window: its box gets typing focus
+focus(kb); poll(); poll()
+check(kb:IsShown() and key("CHAT") ~= nil and chatBox:GetText() == " ",
+	"...and back to the chat window then: the keyboard types in chat again, not taken for a real keyboard's")
+kb:SmartNavigationCloseHandler(); mailTo:ClearFocus(); manager:FrameHidden(mail); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+
 -- Only Blizzard's own lookup, never a box's own function or completion handler.
 local custom = W.CreateFrame("EditBox", nil, mail, "InputBoxTemplate")
 custom.center = { 400, 700 }
