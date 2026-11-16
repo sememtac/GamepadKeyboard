@@ -34,7 +34,9 @@
 -- listening frame keeps every key it isn't allowed to pass on, and SetPropagateKeyboardInput is restricted
 -- (in combat at least).
 --
--- Options: Options > AddOns > Gamepad Keyboard (or /gk), through Blizzard's Settings API.
+-- Options: Options > AddOns > Gamepad Keyboard (or /gk), through Blizzard's Settings API. Where it opens and
+-- its size: in Edit Mode it shows, to be dragged and resized (mouse wheel) - Edit Mode takes no addon frames
+-- (they'd taint it), so this follows its enter / exit events and draws its own selection.
 --
 -- In combat Blizzard's gamepad UI takes no addon windows, so the keyboard doesn't open (a real keyboard
 -- types as always), and an open one closes when combat starts; the text stays in the box.
@@ -84,6 +86,7 @@ local cursor = 0; -- characters before the cursor
 local shift = false;
 local handedBack; -- the box the keyboard just went back to: not opened for again until focus moves on
 local closing = false; -- while closing hands the controller back (which focuses the box again)
+local previewing = false; -- shown in Edit Mode to be placed, not typing anywhere
 local lastInput = "gamepad"; -- what the player pressed last: "gamepad", "keyboard" or "mouse"
 local chatHadFocus; -- while open over chat: whether the chat box had typing focus last frame
 
@@ -941,8 +944,10 @@ local function CreateKeyboard()
 			prompt.icon:SetShown(UsesGamepadUI());
 			prompt.text:SetShown(UsesGamepadUI());
 		end
-		Register();
-		RefreshNavigation();
+		if not previewing then
+			Register();
+			RefreshNavigation();
+		end
 	end);
 	-- However it closes (Enter, B, Escape, combat): back to the window the box belongs to, which focuses the
 	-- box again - not a request for the keyboard - and the box isn't opened for again until focus moves
@@ -1184,6 +1189,81 @@ local function SetOption(key, value)
 	end
 end
 
+-------------------------------------------------------------------------------
+-- Edit Mode: the keyboard shows where it opens, to be dragged and resized
+-------------------------------------------------------------------------------
+
+local EDIT_MODE_STRATA = "HIGH"; -- under Edit Mode's own panels (DIALOG)
+
+-- A step of 5% from the nearest step, as the slider's - in whole percents, so the sizes stay exact.
+local function Resize(delta)
+	local percent = math.floor(Setting("scale") * 20 + 0.5) * 5 + delta * 5;
+	SetOption("scale", math.max(60, math.min(150, percent)) / 100);
+end
+
+-- Its selection: drag to move, mouse wheel to resize (Blizzard's selection templates call back into Edit
+-- Mode with the frame, so this one is its own).
+local function CreateEditModeOverlay()
+	local overlay = CreateFrame("Frame", nil, keyboard);
+	overlay:SetAllPoints();
+	overlay:SetFrameLevel(keyboard:GetFrameLevel() + 50);
+	overlay:EnableMouse(true);
+	overlay:EnableMouseWheel(true);
+	overlay:RegisterForDrag("LeftButton");
+	local fill = overlay:CreateTexture(nil, "BACKGROUND");
+	fill:SetAllPoints();
+	fill:SetColorTexture(0.25, 0.6, 1, 0.3);
+	overlay.Label = overlay:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge");
+	overlay.Label:SetPoint("CENTER", 0, 12);
+	overlay.Label:SetText("Gamepad Keyboard");
+	overlay.Hint = overlay:CreateFontString(nil, "OVERLAY", "GameFontHighlight");
+	overlay.Hint:SetPoint("TOP", overlay.Label, "BOTTOM", 0, -6);
+	overlay.Hint:SetText("Drag to move, mouse wheel to resize");
+	overlay:SetScript("OnDragStart", function()
+		keyboard:StartMoving();
+	end);
+	overlay:SetScript("OnDragStop", SavePosition);
+	overlay:SetScript("OnMouseWheel", function(_, delta)
+		Resize(delta);
+	end);
+	overlay:Hide();
+	keyboard.EditModeOverlay = overlay;
+end
+
+local function EditModeEnter()
+	if InCombatLockdown() then
+		return;
+	end
+	Close(); -- typing somewhere: the text stays in the box
+	if not keyboard then
+		CreateKeyboard();
+	end
+	if not keyboard.EditModeOverlay then
+		CreateEditModeOverlay();
+	end
+	previewing = true;
+	target, isChat, suggesting = nil, false, false;
+	text, cursor, page, shift = "", 0, "letters", false;
+	keyboard:SetFrameStrata(EDIT_MODE_STRATA);
+	Position(nil);
+	keyboard:Show();
+	keyboard.EditModeOverlay:Show();
+end
+
+local function EditModeExit()
+	if previewing then
+		previewing = false;
+		keyboard.EditModeOverlay:Hide();
+		keyboard:Hide();
+		keyboard:SetFrameStrata("FULLSCREEN_DIALOG");
+	end
+end
+
+if EventRegistry then
+	EventRegistry:RegisterCallback("EditMode.Enter", EditModeEnter, ADDON_NAME);
+	EventRegistry:RegisterCallback("EditMode.Exit", EditModeExit, ADDON_NAME);
+end
+
 -- One check per frame: what the player is pressing, the chat box taken back, and the keyboard opens when
 -- typing focus moves to a text box.
 local lastFocus;
@@ -1194,6 +1274,10 @@ watcher:SetScript("OnUpdate", function()
 	end
 	UpdateShortcuts();
 	UpdateHoldHint();
+	if previewing then
+		lastFocus = GetCurrentKeyBoardFocus(); -- in Edit Mode: not typing anywhere, and nothing to open after it
+		return;
+	end
 	-- Its box gone (the window closed, Enter hid it): the keyboard goes too.
 	if keyboard and keyboard:IsShown() and target and not target:IsVisible() then
 		Close();

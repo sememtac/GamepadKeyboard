@@ -320,6 +320,17 @@ Settings = {
 	OpenToCategory = function(id) optionsPanel.opened = id end,
 }
 
+-- EventRegistry (CallbackRegistryMixin): one callback per owner and event, an owner required here.
+EventRegistry = { callbacks = {} }
+function EventRegistry:RegisterCallback(event, func, owner)
+	assert(type(event) == "string" and type(func) == "function" and owner ~= nil and type(owner) ~= "number", "RegisterCallback arguments")
+	self.callbacks[event] = self.callbacks[event] or {}
+	self.callbacks[event][owner] = func
+end
+function EventRegistry:TriggerEvent(event, ...)
+	for owner, func in pairs(self.callbacks[event] or {}) do func(owner, ...) end
+end
+
 -- ---- load ---------------------------------------------------------------------------------------------
 H.loadAddon({})
 check(SlashCmdList.GAMEPADKEYBOARD ~= nil and SLASH_GAMEPADKEYBOARD1 == "/gk", "/gk")
@@ -995,6 +1006,44 @@ SlashCmdList.GAMEPADKEYBOARD("reset")
 check(GamepadKeyboardDB.position == nil and S.scale:GetValue() == 1 and kb.scale == 1 and kb.point[2] == chatFrame,
 	"/gk reset: usual place and size, at once")
 kb:Hide(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+
+-- ---- Edit Mode: placed and sized there ---------------------------------------------------------------------------
+check(EventRegistry.callbacks["EditMode.Enter"] and EventRegistry.callbacks["EditMode.Exit"], "it follows Edit Mode's enter and exit")
+EventRegistry:TriggerEvent("EditMode.Enter")
+local overlay = kb.EditModeOverlay
+check(kb:IsShown() and overlay and overlay.shown and overlay.mouseWheel and overlay.Label.text == "Gamepad Keyboard"
+	and kb.strata == "HIGH" and kb.point[1] == "CENTER" and kb.scale == 1,
+	"Edit Mode: the keyboard shows (middle of the screen till placed), with its own selection, under Edit Mode's panels")
+check(indexOf(kb) == nil and boundTo("PAD1") == "CLICK Blizzard_PAD1:LeftButton", "...not a gamepad panel, the controller's buttons left alone")
+overlay.scripts.OnDragStart(overlay)
+check(kb.moving, "dragging its selection moves it")
+kb:ClearAllPoints(); kb:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", 40, 600)
+overlay.scripts.OnDragStop(overlay)
+check(not kb.moving and GamepadKeyboardDB.position.point == "TOPLEFT" and GamepadKeyboardDB.position.x == 40, "...and keeps where it's put")
+overlay.scripts.OnMouseWheel(overlay, 1); overlay.scripts.OnMouseWheel(overlay, 1)
+check(S.scale:GetValue() == 1.1 and kb.scale == 1.1 and kb.point[4] == 40 / 1.1, "the mouse wheel over it: bigger, in steps, the same spot")
+for _ = 1, 3 do overlay.scripts.OnMouseWheel(overlay, -1) end
+check(S.scale:GetValue() == 0.95, "...smaller in the same steps, exact sizes")
+S.scale:SetValue(0.83); overlay.scripts.OnMouseWheel(overlay, 1)
+check(S.scale:GetValue() == 0.9, "...from a size between steps: the nearest step, then one more")
+for _ = 1, 20 do overlay.scripts.OnMouseWheel(overlay, -1) end
+check(S.scale:GetValue() == 0.6, "...not smaller than the smallest size")
+S.scale:SetValue(1)
+padA(function() nameBox:SetFocus() end) -- the controller on a text box meanwhile: nothing of typing
+check(kb:IsShown() and overlay.shown and indexOf(kb) == nil and preview() == "|", "a text box focused in Edit Mode: it stays a preview")
+EventRegistry:TriggerEvent("EditMode.Exit")
+check(not kb:IsShown() and not overlay.shown and kb.strata == "FULLSCREEN_DIALOG", "leaving Edit Mode: it goes, back on its own layer")
+poll(); poll()
+check(not kb:IsShown(), "...and doesn't open for the box focused in Edit Mode")
+nameBox:ClearFocus(); poll()
+openChat("SAY"); poll()
+check(kb:IsShown() and kb.point[1] == "TOPLEFT" and kb.point[4] == 40 and not overlay.shown, "next time it opens where it was put")
+type("hi")
+EventRegistry:TriggerEvent("EditMode.Enter")
+check(overlay.shown and chatBox:GetText() == "Hi" and preview() == "|", "Edit Mode while typing: the keyboard becomes the preview, the text stays in the box")
+EventRegistry:TriggerEvent("EditMode.Exit")
+chatBox.text = ""; chatBox:ClearFocus(); manager:FrameHidden(chatFrame); poll()
+GamepadKeyboardDB.position = nil
 
 -- ---- the D-pad ---------------------------------------------------------------------------------------------------
 padA(function() nameBox:SetFocus() end)

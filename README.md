@@ -28,7 +28,8 @@ Type the message and press **Enter**: it's sent and the chat closes, as with the
 replies keep their target, `/p` and the other prefixes switch the chat as when typing, numbered channels
 work, and a line starting with `/` runs as a command (`/dance`, `/cast`, `/target`). The chat type you
 sent in sticks for the next line, as it does with Enter. Enter with nothing typed just closes the chat.
-A chat line starts with Shift on.
+A chat line starts with Shift on. With **Close after Enter** off (Options), Enter sends and the keyboard
+stays on a fresh line in the same chat; B closes it.
 
 The **chat key** (bottom row, beside Space) shows who you're talking to - Say, Party, To Bob, /2 - and
 steps on to the next chat type there is to use: Say, Party (in a group), Raid (in a raid), Instance (in an
@@ -40,6 +41,36 @@ own parsing switches the chat - so it's the same as typing the prefix yourself.
 there. Enter does that too, with a note in the chat, for the few lines it can't send itself: Battle.net
 whispers, chat types with no slash prefix, channels picked by name
 rather than number, and lines too long to fit with their prefix.
+
+## Boxes of several lines
+
+In a box of several lines - the mail's text - Enter (the key, or holding A) starts a **new line** at the
+cursor; the Enter key and the footer say so. The preview shows the line the cursor is on ("line 2 of 3").
+B is the way out. Every other box gets Enter as its Enter.
+
+## Options
+
+Options > AddOns > **Gamepad Keyboard** (or `/gk`):
+
+| Option | Does |
+| --- | --- |
+| Open with the controller | opens when you go to a text box with the controller (`/gk on` / `/gk off`) |
+| Close after Enter | Enter closes the keyboard (chat: sends and closes the chat); off: it stays for the next line |
+| Capital letter to start a chat line | a chat line starts with Shift on |
+| Name suggestions | name keys for a box that looks names up (the mail's To:) |
+| Hold A for Enter | how long to hold A for Enter, 0.3 - 1.5 s |
+| Size | 60 - 150% |
+
+## Where it goes, and its size: Edit Mode
+
+In **Edit Mode** the keyboard shows (in the middle of the screen until it's been placed), with a blue
+selection: drag it with the mouse to where it should open, and use the mouse wheel over it to resize it in
+5% steps. It opens there from then on, for every text box - placed once, the "beside the chat window"
+default is gone; `/gk reset` brings back the usual place and size. Size is also in Options.
+
+This is the keyboard's own selection, not one of Edit Mode's systems: Forever's Edit Mode takes no addon
+frames (adding one to its list would taint it, and it lays out the action bars), so there's no Edit Mode
+settings dialog for it and the layout isn't per Edit Mode layout.
 
 ## Names
 
@@ -65,8 +96,8 @@ Whichever you're using has the text box:
 
 - **Not in combat**: Blizzard's gamepad UI takes no addon windows in combat, so the keyboard doesn't open
   then; a real keyboard types as always. If combat starts while it's open, it closes and the text stays.
-- **Where it opens**: beside the chat window for chat, near the text box otherwise. Drag it with the mouse
-  and it opens there from then on; `/gk reset` puts it back.
+- **Where it opens**: beside the chat window for chat, near the text box otherwise - until it's placed in
+  Edit Mode (or dragged with the mouse); `/gk reset` puts it back.
 - **Another text box in the same window** (the mail's Subject:): LT / RT to the window, D-pad to the box,
   A on it - the keyboard types there from then on; LT / RT back to the keyboard. A real keyboard or a
   mouse click in another box makes it step aside instead.
@@ -74,7 +105,7 @@ Whichever you're using has the text box:
   `/gk names` says what the game's name lookup finds for it (or why it doesn't run).
 - **Bringing it back** after going back to a text box (or after the real keyboard took over): A on the box
   again, or Chat on the menu dial again.
-- `/gk off` stops it opening by itself; `/gk on` turns it back on.
+- `/gk` opens its options; `/gk off` stops it opening by itself, `/gk on` turns it back on.
 - No `|` key: the game reads it as the start of an escape code.
 
 ## How it works
@@ -127,9 +158,16 @@ not for chat. Blizzard's list (`AutoCompleteBox`) isn't touched: its update runs
 calling it from here would leave addon-written state (its parent, selection) that the chat's Enter reads.
 A picked name goes in as Blizzard's list puts it (`Ambiguate(name, "none")`, the box's command and space).
 
+Options are Blizzard's Settings API (`Settings.RegisterAddOnSetting` on the saved table, registered at
+`ADDON_LOADED` once that table is loaded; Blizzard writes defaults into it). Edit Mode is followed through
+`EventRegistry` (`EditMode.Enter` / `EditMode.Exit`); in it the keyboard is a preview on the HIGH layer
+(under Edit Mode's DIALOG panels) that never registers with the gamepad UI or follows typing focus. Saved
+positions are kept in UIParent's units - a frame's offsets are in its own scaled units, so they're
+multiplied by its scale when kept and divided when used - so it stays put at any size.
+
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 164 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 209 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
 focus, the menu dial's button already up), and real-keyboard keys delivered as the game delivers them
@@ -152,6 +190,11 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
       way, they type into To: again.
 - [ ] Mail To:: typing a few letters shows up to four names above the keys; D-pad up and A puts one in, and
       the mail can be sent to it.
+- [ ] Options > AddOns > Gamepad Keyboard shows the six options; each works (Close after Enter off: chat
+      stays open for the next line). The panel is usable with the controller.
+- [ ] Mail text (several lines): Enter / holding A start a new line; the preview shows "line 2 of 2".
+- [ ] Edit Mode: the keyboard shows with a blue selection, under Edit Mode's panels; dragging moves it, the
+      mouse wheel resizes it; after Edit Mode it opens there at that size.
 - [ ] The chat key: in a group it goes Say -> Party (-> Raid / Instance / Guild / To <last whisperer>) and
       back to Say, the chat box's header changes with it, the text stays, and Enter sends to that chat.
 - [ ] LT / RT move between the keyboard and other open windows.
