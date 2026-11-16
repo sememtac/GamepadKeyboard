@@ -60,6 +60,7 @@ Options > AddOns > **Gamepad Keyboard** (or `/gk`):
 | Option | Does |
 | --- | --- |
 | Open with the controller | opens when you go to a text box with the controller (`/gk on` / `/gk off`) |
+| Keyboard layout | QWERTY or Dvorak (the letters; numbers, symbols and the bottom row are the same) |
 | Close after Enter | Enter closes the keyboard (chat: sends and closes the chat); off: it stays for the next line |
 | Capital letter to start a chat line | a chat line starts with Shift on |
 | Name suggestions | name keys for a box that looks names up (the mail's To:) |
@@ -175,7 +176,7 @@ multiplied by its scale when kept and divided when used - so it stays put at any
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 233 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 242 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
 focus, the menu dial's button already up), and real-keyboard keys delivered as the game delivers them
@@ -198,7 +199,7 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
       way, they type into To: again.
 - [ ] Mail To:: typing a few letters shows up to four names above the keys; D-pad up and A puts one in, and
       the mail can be sent to it.
-- [ ] Options > AddOns > Gamepad Keyboard shows the six options; each works (Close after Enter off: chat
+- [ ] Options > AddOns > Gamepad Keyboard shows the seven options (Keyboard layout: Dvorak switches the letters at once); each works (Close after Enter off: chat
       stays open for the next line). The panel is usable with the controller.
 - [ ] Mail text (several lines): Enter / holding A start a new line; the preview shows "line 2 of 2".
 - [ ] Edit Mode: the keyboard shows with a blue selection, under Edit Mode's panels; dragging moves it, the

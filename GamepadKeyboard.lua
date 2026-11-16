@@ -56,14 +56,24 @@ local SPECIAL_KEYS = {
 	[ENTER] = { label = "Enter", units = 2.5 },
 	[CHAT] = { label = "Say", units = 2.5 }, -- chat only; shows the chat type
 };
+-- The letters in either layout (an option), with the same number and bottom rows; one symbols page.
 -- No "|": the game reads it as the start of an escape code.
+local NUMBER_ROW = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", BACK };
+local BOTTOM_ROW = { SYMBOLS, CHAT, SPACE, ENTER };
 local PAGES = {
-	letters = {
-		{ "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", BACK },
+	qwerty = {
+		NUMBER_ROW,
 		{ "q", "w", "e", "r", "t", "y", "u", "i", "o", "p" },
 		{ "a", "s", "d", "f", "g", "h", "j", "k", "l", "'" },
 		{ SHIFT, "z", "x", "c", "v", "b", "n", "m", ",", "." },
-		{ SYMBOLS, CHAT, SPACE, ENTER },
+		BOTTOM_ROW,
+	},
+	dvorak = {
+		NUMBER_ROW,
+		{ "'", ",", ".", "p", "y", "f", "g", "c", "r", "l" },
+		{ "a", "o", "e", "u", "i", "d", "h", "t", "n", "s" },
+		{ SHIFT, ";", "q", "j", "k", "x", "b", "m", "w", "v", "z" },
+		BOTTOM_ROW,
 	},
 	symbols = {
 		{ "!", "@", "#", "$", "%", "&", "*", "(", ")", "-", BACK },
@@ -75,7 +85,7 @@ local PAGES = {
 
 local keyboard;
 local keys = {}; -- page -> rows of key buttons
-local page = "letters";
+local page = "qwerty"; -- a letters page (the layout's) or "symbols"
 local target; -- the text box being typed into
 local isChat = false;
 local suggesting = false; -- the box looks names up (a row of name keys above the keys)
@@ -103,6 +113,7 @@ local DEFAULTS = {
 	chatCapital = true, -- a chat line starts with Shift on
 	names = true, -- name keys for boxes that look names up
 	holdTime = 0.5, -- holding A this long (seconds) is Enter
+	layout = "qwerty", -- the letters: "qwerty" or "dvorak"
 	scale = 1, -- the keyboard's size
 };
 
@@ -112,6 +123,11 @@ local function Setting(key)
 		return DEFAULTS[key];
 	end
 	return value;
+end
+
+-- The letters page of the layout chosen.
+local function LettersPage()
+	return Setting("layout") == "dvorak" and "dvorak" or "qwerty";
 end
 
 local function Print(message)
@@ -409,16 +425,22 @@ local function UpdatePreview()
 end
 
 local function UpdateLabels()
-	for _, row in ipairs(keys.letters) do
-		for _, button in ipairs(row) do
-			if not SPECIAL_KEYS[button.key] then
-				button:SetText(shift and button.key:upper() or button.key);
+	for name, rows in pairs(keys) do
+		if name ~= "symbols" then
+			for _, row in ipairs(rows) do
+				for _, button in ipairs(row) do
+					if not SPECIAL_KEYS[button.key] then
+						button:SetText(shift and button.key:upper() or button.key);
+					end
+				end
 			end
 		end
 	end
-	keyboard.ShiftKey:LockHighlight();
-	if not shift then
-		keyboard.ShiftKey:UnlockHighlight();
+	for _, shiftKey in ipairs(keyboard.ShiftKeys) do
+		shiftKey:LockHighlight();
+		if not shift then
+			shiftKey:UnlockHighlight();
+		end
 	end
 	local enterLabel = target and not isChat and target:IsMultiLine() and "New line" or "Enter";
 	for _, enterKey in ipairs(keyboard.EnterKeys) do
@@ -577,7 +599,7 @@ local function Press(button)
 		shift = not shift;
 		UpdateLabels();
 	elseif key == SYMBOLS or key == LETTERS then
-		page = key == SYMBOLS and "symbols" or "letters";
+		page = key == SYMBOLS and "symbols" or LettersPage();
 		Layout();
 		RefreshNavigation();
 	elseif key == CHAT then
@@ -914,6 +936,7 @@ local function CreateKeyboard()
 
 	keyboard.ChatKeys = {};
 	keyboard.EnterKeys = {};
+	keyboard.ShiftKeys = {};
 	for name, layout in pairs(PAGES) do
 		keys[name] = {};
 		for r, rowKeys in ipairs(layout) do
@@ -921,7 +944,7 @@ local function CreateKeyboard()
 			for c, key in ipairs(rowKeys) do
 				row[c] = CreateKey(key);
 				if key == SHIFT then
-					keyboard.ShiftKey = row[c];
+					table.insert(keyboard.ShiftKeys, row[c]);
 				elseif key == CHAT then
 					table.insert(keyboard.ChatKeys, row[c]);
 				elseif key == ENTER then
@@ -1054,7 +1077,7 @@ local function SetTarget(box)
 		-- Keeps the chat box open, and its chat type, while the controller is on the keyboard.
 		box:SetText(PLACEHOLDER);
 	end
-	page = "letters";
+	page = LettersPage();
 	shift = isChat and text == "" and Setting("chatCapital");
 end
 
@@ -1180,6 +1203,16 @@ end
 local options = {}; -- key -> Blizzard's setting
 local optionsCategory;
 
+-- A change of layout shows at once if the keyboard is up on its letters.
+local function ApplyLayout()
+	if keyboard and keyboard:IsShown() and page ~= "symbols" and not InCombatLockdown() then
+		page = LettersPage();
+		Layout();
+		UpdateLabels();
+		RefreshNavigation();
+	end
+end
+
 -- A change of size shows at once if the keyboard is up.
 local function ApplySize()
 	if keyboard and keyboard:IsShown() and not InCombatLockdown() then
@@ -1192,10 +1225,13 @@ local function RegisterOptions()
 		return;
 	end
 	local category = Settings.RegisterVerticalLayoutCategory("Gamepad Keyboard");
-	local function Add(key, name, tooltip, sliderOptions)
+	-- A checkbox; a slider (its options); a dropdown (a function giving its choices).
+	local function Add(key, name, tooltip, control)
 		local setting = Settings.RegisterAddOnSetting(category, "GamepadKeyboard_" .. key, key, DB(), type(DEFAULTS[key]), name, DEFAULTS[key]);
-		if sliderOptions then
-			Settings.CreateSlider(category, setting, sliderOptions, tooltip);
+		if type(control) == "function" then
+			Settings.CreateDropdown(category, setting, control, tooltip);
+		elseif control then
+			Settings.CreateSlider(category, setting, control, tooltip);
 		else
 			Settings.CreateCheckbox(category, setting, tooltip);
 		end
@@ -1209,6 +1245,12 @@ local function RegisterOptions()
 	end
 	Add("autoOpen", "Open with the controller",
 		"Opens when you go to a text box with the controller: A on it, or Chat on the menu dial. A real keyboard or the mouse never opens it.");
+	Add("layout", "Keyboard layout", "Where the letters are.", function()
+		local choices = Settings.CreateControlTextContainer();
+		choices:Add("qwerty", "QWERTY");
+		choices:Add("dvorak", "Dvorak");
+		return choices:GetData();
+	end):SetValueChangedCallback(ApplyLayout);
 	Add("closeOnEnter", "Close after Enter",
 		"Enter sends a chat line and closes the chat, or runs a text box's Enter and closes the keyboard. Off: the keyboard stays open for the next line.");
 	Add("chatCapital", "Capital letter to start a chat line", "A chat line starts with Shift on.");
@@ -1284,7 +1326,7 @@ local function EditModeEnter()
 	end
 	previewing = true;
 	target, isChat, suggesting = nil, false, false;
-	text, cursor, page, shift = "", 0, "letters", false;
+	text, cursor, page, shift = "", 0, LettersPage(), false;
 	keyboard:SetFrameStrata(EDIT_MODE_STRATA);
 	Position(nil);
 	keyboard:Show();

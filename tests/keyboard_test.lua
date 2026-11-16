@@ -324,6 +324,16 @@ Settings = {
 	end,
 	CreateCheckbox = function(category, setting, tooltip) setting.control, setting.tooltip = "checkbox", tooltip end,
 	CreateSlider = function(category, setting, options, tooltip) setting.control, setting.options, setting.tooltip = "slider", options, tooltip end,
+	CreateDropdown = function(category, setting, options, tooltip)
+		assert(type(options) == "function", "a dropdown's options are a function giving its choices")
+		setting.control, setting.options, setting.tooltip = "dropdown", options, tooltip
+	end,
+	CreateControlTextContainer = function()
+		local container = { data = {} }
+		function container:Add(value, label) table.insert(self.data, { value = value, label = label, text = label }) end
+		function container:GetData() return self.data end
+		return container
+	end,
 	CreateSliderOptions = function(minValue, maxValue, rate)
 		return { minValue = minValue, maxValue = maxValue, steps = (maxValue - minValue) / rate,
 			SetLabelFormatter = function(self, labelType, format) self.labelType, self.format = labelType, format end }
@@ -355,8 +365,8 @@ check(optionsPanel.category == nil, "(another addon loading: nothing)")
 W.fireEvent("ADDON_LOADED", "GamepadKeyboard")
 local S = optionsPanel.settings
 check(optionsPanel.addOnCategory and optionsPanel.addOnCategory.name == "Gamepad Keyboard"
-	and table.concat(optionsPanel.order, ",") == "autoOpen,closeOnEnter,chatCapital,names,holdTime,scale",
-	"Options > AddOns > Gamepad Keyboard: open with the controller, close after Enter, capital, names, hold time, size")
+	and table.concat(optionsPanel.order, ",") == "autoOpen,layout,closeOnEnter,chatCapital,names,holdTime,scale",
+	"Options > AddOns > Gamepad Keyboard: open with the controller, layout, close after Enter, capital, names, hold time, size")
 check(S.autoOpen.control == "checkbox" and S.closeOnEnter.control == "checkbox" and S.holdTime.control == "slider" and S.scale.control == "slider"
 	and S.holdTime.options.minValue == 0.3 and S.holdTime.options.maxValue == 1.5 and S.holdTime.options.format(0.5) == "0.5 s"
 	and S.scale.options.minValue == 0.6 and S.scale.options.maxValue == 1.5 and S.scale.options.format(1.2) == "120%",
@@ -364,7 +374,11 @@ check(S.autoOpen.control == "checkbox" and S.closeOnEnter.control == "checkbox" 
 check(S.closeOnEnter.tbl == savedTable and savedTable.closeOnEnter == true and savedTable.holdTime == 0.5 and savedTable.scale == 1,
 	"on the loaded saved table, defaults filled in")
 W.fireEvent("ADDON_LOADED", "GamepadKeyboard")
-check(#optionsPanel.order == 6, "(registered once)")
+check(#optionsPanel.order == 7, "(registered once)")
+local layoutChoices = S.layout.options()
+check(S.layout.control == "dropdown" and #layoutChoices == 2 and layoutChoices[1].value == "qwerty" and layoutChoices[1].label == "QWERTY"
+	and layoutChoices[2].value == "dvorak" and layoutChoices[2].label == "Dvorak" and savedTable.layout == "qwerty",
+	"Keyboard layout: a dropdown, QWERTY (the default) or Dvorak")
 poll(); poll()
 check(W.focused == nil, "loading takes no typing focus (a text box of ours shown with auto-focus would keep every key)")
 
@@ -791,6 +805,27 @@ playerClick(key("ENTER")); poll()
 check(not kb:IsShown(), "...and when its Enter closes the window, the keyboard goes too")
 searchPanel:Show(); search:ClearFocus(); manager:FrameHidden(searchPanel); poll()
 GamepadKeyboardDB.closeOnEnter = nil
+-- Keyboard layout: Dvorak.
+openChat("SAY"); poll()
+local function rowOf(k) return key(k) and key(k).point[3] end
+check(rowOf("q") == rowOf("w") and rowOf("a") == rowOf("s"), "(QWERTY: q w ..., a s ...)")
+S.layout:SetValue("dvorak")
+check(key("'") and rowOf("'") == rowOf("p") and rowOf("a") == rowOf("o") and rowOf(";") == rowOf("z") and rowOf("q") == rowOf("z")
+	and rowOf("1") ~= nil and key("SPACE") and key("CHAT"), "Dvorak, at once: ' , . p y ..., a o e u i ..., ; q j k x ...; numbers and the bottom row the same")
+local function jump(k, dir) return overrides[key(k)] and overrides[key(k)][dir] end
+check(jump("a", "right") == key("o") and jump("s", "right") == key("a"), "...and the D-pad follows it (a, o, e ...; round from s to a)")
+check(key("SHIFT").locked and key("a").text == "A", "...Shift as before")
+type("hello")
+check(chatBox:GetText() == "Hello", "...and types (" .. chatBox:GetText() .. ")")
+playerClick(key("SYMBOLS")); playerClick(key("LETTERS"))
+check(rowOf("a") == rowOf("o"), "?123 and back: Dvorak")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+openChat("SAY"); poll()
+check(rowOf("a") == rowOf("o"), "and it opens in Dvorak next time")
+S.layout:SetValue("qwerty")
+check(rowOf("a") == rowOf("s") and rowOf("q") == rowOf("w"), "back to QWERTY, at once")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+
 -- A chat line without a capital to start.
 GamepadKeyboardDB.chatCapital = false
 openChat("SAY"); poll()
