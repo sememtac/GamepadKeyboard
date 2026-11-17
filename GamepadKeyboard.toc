@@ -2,8 +2,10 @@
 ## Title: Gamepad Keyboard
 ## Notes: An on-screen keyboard for typing with a controller, in the game's controller UI.
 ## Author: Catmemes
-## Version: 0.13.1
+## Version: @project-version@
 ## SavedVariables: GamepadKeyboardDB
+## X-License: MIT
+## X-Website: https://github.com/sememtac/GamepadKeyboard
 ## IconTexture: Interface\AddOns\GamepadKeyboard\Icon
 
 GamepadKeyboard.lua

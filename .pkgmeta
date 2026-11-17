@@ -1,0 +1,7 @@
+package-as: GamepadKeyboard
+
+manual-changelog: CHANGELOG.md
+
+ignore:
+  - README.md
+  - tests

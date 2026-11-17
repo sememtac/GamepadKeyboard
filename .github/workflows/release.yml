@@ -1,0 +1,40 @@
+name: Test and release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LuaJIT (the game runs Lua 5.1)
+        run: sudo apt-get update && sudo apt-get install -y luajit
+
+      - name: Run the test suites
+        run: tests/run.sh
+
+  release:
+    # Tags only, and only once the tests pass.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      # Optional: once the CurseForge project exists, add its API token as this repository secret and
+      # the same release also uploads there.
+      CF_API_KEY: ${{ secrets.CF_API_KEY }}
+      GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: BigWigsMods/packager@v2

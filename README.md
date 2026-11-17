@@ -1,6 +1,6 @@
 # Gamepad Keyboard
 
-An on-screen keyboard for typing with a controller in WoW: Forever (Interface 16001). Local addon.
+An on-screen keyboard for typing with a controller in WoW: Forever (Interface 16001).
 
 When you go to a text box with the controller - A on a name box or a search box, Chat on the menu dial -
 the keyboard opens on top of the window the box belongs to. It joins Blizzard's gamepad UI like the game's own
