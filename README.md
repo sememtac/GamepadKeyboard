@@ -56,7 +56,8 @@ To: moves on to Subject: (the box's own Enter), and the keyboard follows it ther
 ## Options
 
 Options > AddOns > **Gamepad Keyboard** (or `/gk`) - checkboxes, a dropdown with < > like the ones in
-Options, and - / + for the numbers; the panel's Defaults button puts them all back:
+Options (A or a click on it picks the next layout - see below for why it doesn't open a list), and - / +
+for the numbers; the panel's Defaults button puts them all back:
 
 | Option | Does |
 | --- | --- |
@@ -190,9 +191,13 @@ search box - which redraws the page - and then saves key bindings, which only Bl
 the addon's controls on that page, that was "blocked from an action only available to the Blizzard UI".
 A canvas page the panel only shows, and calls its refresh and defaults isolated; this one has no OnShow.
 The layout dropdown is Blizzard's own (`SettingsDropdownWithButtonsTemplate`, the frame the Options
-dropdowns use) on that page: the menu system runs the addon's choices and their picks isolated, and the
-controller's A on it calls the control's `OnSmartNavClick` isolated too. A pick doesn't redraw the menu it
-was made in (that rebuilds the open menu under its own click); Defaults and the steppers redraw it. Edit Mode is followed through
+dropdowns use) on that page, but its menu never opens. A Blizzard menu opened by an addon has the
+controller UI's focus manager react as the addon's doing - its `MenuProxy.OnShow` / `MenuProxy.OnClose`
+callbacks (`SuspendFrame`, `UnsuspendFrame`) aren't isolated - and the focused frame's footer bindings,
+put back on the close, then had the game block `SetPreferredGamepadInteractTarget()` (the interact
+icon) and `TargetNearestEnemy()` (RB) for the rest of the session. So the dropdown's `OpenMenu` (where a
+click goes) and the control's `OnSmartNavClick` (the controller's A) pick the next layout, and the
+steppers pick without a menu. Edit Mode is followed through
 `EventRegistry` (`EditMode.Enter` / `EditMode.Exit`); in it the keyboard is a preview on the HIGH layer
 (under Edit Mode's DIALOG panels) that never registers with the gamepad UI or follows typing focus. Saved
 positions are kept in UIParent's units - a frame's offsets are in its own scaled units, so they're
@@ -200,7 +205,7 @@ multiplied by its scale when kept and divided when used - so it stays put at any
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 276 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 278 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
 focus, the menu dial's button already up), and real-keyboard keys delivered as the game delivers them
@@ -226,9 +231,9 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
 - [ ] Options > AddOns > Gamepad Keyboard shows the seven options (Keyboard layout: Dvorak switches the letters at once);
       A on the Options search box or the bag search: no keyboard (a note the first time); no "blocked" dialog; each works (Close after Enter off: chat
       stays open for the next line). The panel is usable with the controller.
-- [ ] Keyboard layout dropdown: looks like the Options dropdowns; with the controller, A on it opens the
-      menu, the D-pad walks it, A picks (the menu closes, the dropdown shows the pick), B closes it unpicked;
-      the cursor sits sensibly on the row; with the mouse, < and > step it. No "blocked" dialog after.
+- [ ] Keyboard layout dropdown: looks like the Options dropdowns; A on it (or a click) switches to the
+      other layout, no list opens; the cursor sits sensibly on the row; with the mouse, < and > step it.
+      Then, back in the world: the interact icon and RB targeting work, no "blocked" dialog.
 - [ ] Mail: after Send, the keyboard's preview (and the name row) is empty too.
 - [ ] Mail text (several lines): Enter / holding A start a new line; the preview shows "line 2 of 2".
 - [ ] Edit Mode: the keyboard shows with a blue selection, under Edit Mode's panels; dragging moves it, the

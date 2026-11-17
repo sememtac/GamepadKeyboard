@@ -230,7 +230,9 @@ function W.CreateFrame(kind, name, parent, template)
 		-- Blizzard's dropdown with < > steppers (DropdownWithSteppersTemplate + WowStyle2DropdownTemplate). The
 		-- menu: SetupMenu's generator builds radios (CreateRadio(text, isSelected, setSelected)); the shown text
 		-- is the selected radio's; picking one (from the open menu, or a stepper) calls its setter, then the
-		-- dropdown updates to the selection.
+		-- dropdown updates to the selection. A click: OnMouseDown_Intrinsic -> SetMenuOpen -> OpenMenu, which
+		-- opens Blizzard's menu - in the controller UI that's FrameControlsManager's MenuProxy.OnShow (not
+		-- isolated): opened from an addon, the focus manager is tainted (menusOpened counts them).
 		local dropdown = W.CreateFrame("Button", nil, f)
 		function dropdown:GenerateMenu()
 			if self.menuOpen then -- (RegisterMenu: the open menu gets the new description, rebuilt without closing)
@@ -246,9 +248,12 @@ function W.CreateFrame(kind, name, parent, template)
 		function dropdown:Pick(i) self.radios[i].setSelected(); self.menuOpen = false; self:GenerateMenu() end
 		function dropdown:Increment() if self.radios[self.selected + 1] then self:Pick(self.selected + 1) end end
 		function dropdown:Decrement() if self.radios[self.selected - 1] then self:Pick(self.selected - 1) end end
-		function dropdown:MouseDown() end
-		function dropdown:MouseUp() self.menuOpen = true end
+		function dropdown:OpenMenu() self:GenerateMenu(); self.menuOpen = true; self.menusOpened = (self.menusOpened or 0) + 1 end
+		function dropdown:CloseMenu() self.menuOpen = false end
+		function dropdown:SetMenuOpen(open) if open then self:OpenMenu() else self:CloseMenu() end end
 		function dropdown:IsMenuOpen() return self.menuOpen == true end
+		function dropdown:MouseDown() self:SetMenuOpen(not self:IsMenuOpen()) end
+		function dropdown:MouseUp() end
 		f.Dropdown = dropdown
 		f.IncrementButton = W.CreateFrame("Button", nil, f); f.IncrementButton.scripts.OnClick = function() dropdown:Increment() end
 		f.DecrementButton = W.CreateFrame("Button", nil, f); f.DecrementButton.scripts.OnClick = function() dropdown:Decrement() end

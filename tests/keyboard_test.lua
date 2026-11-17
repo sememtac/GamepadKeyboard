@@ -361,9 +361,9 @@ local S = setmetatable({}, { __index = function(_, key)
 			if page.Checks[key] then
 				if (optionValue(key) and true or false) ~= value then page.Checks[key]:Click() end
 			elseif key == "layout" then
-				local dropdown = page.LayoutDropdown
-				dropdown:MouseDown(); dropdown:MouseUp() -- the menu open
-				for i, radio in ipairs(dropdown.radios) do if radio.text:lower() == value then dropdown:Pick(i) end end
+				for _ = 1, #page.LayoutDropdown.radios do
+					if optionValue(key) ~= value then page.LayoutDropdown.parent:OnSmartNavClick() end -- A on it: the next one
+				end
 			else
 				local stepper, step = page.Steppers[key], key == "scale" and 0.05 or 0.1
 				for _ = 1, 40 do
@@ -390,14 +390,19 @@ local layoutControl, layoutDropdown = page.LayoutDropdown.parent, page.LayoutDro
 check(layoutControl.template == "SettingsDropdownWithButtonsTemplate" and #layoutDropdown.radios == 2
 	and layoutDropdown.radios[1].text == "QWERTY" and layoutDropdown.radios[2].text == "Dvorak",
 	"Keyboard layout: the Options dropdown (with < >), QWERTY or Dvorak")
-check(layoutControl:OnSmartNavClick() and layoutDropdown:IsMenuOpen(), "...A on it with the controller opens its menu")
-layoutDropdown:Pick(2)
-check(savedTable.layout == "dvorak" and layoutDropdown.text == "Dvorak" and not layoutDropdown:IsMenuOpen(), "...picking Dvorak: saved, shown")
-check(not layoutDropdown.rebuiltWhileOpen, "...the open menu not rebuilt under the pick (only after it)")
+check(layoutControl:OnSmartNavClick() and savedTable.layout == "dvorak" and layoutDropdown.text == "Dvorak",
+	"...A on it with the controller: the next layout, Dvorak, saved and shown")
+check(layoutControl:OnSmartNavClick() and savedTable.layout == "qwerty" and layoutDropdown.text == "QWERTY", "...again: round to QWERTY")
+layoutDropdown:MouseDown(); layoutDropdown:MouseUp()
+check(savedTable.layout == "dvorak" and layoutDropdown.text == "Dvorak", "...a click on it: the next one too")
+check(not layoutDropdown.menusOpened and not layoutDropdown:IsMenuOpen(),
+	"...and no Blizzard menu ever opened from here (one opened by an addon taints the controller UI's focus manager)")
 layoutControl.DecrementButton:Click()
 check(savedTable.layout == "qwerty" and layoutDropdown.text == "QWERTY", "...the < stepper: back to QWERTY")
 layoutControl.IncrementButton:Click()
 check(savedTable.layout == "dvorak", "...the > stepper: Dvorak")
+layoutControl.IncrementButton:Click()
+check(savedTable.layout == "dvorak" and not layoutDropdown.menusOpened, "...> at the last one: stays (as Blizzard's), no menu")
 page.OnDefault(page)
 check(savedTable.layout == "qwerty" and layoutDropdown.text == "QWERTY", "...Defaults: QWERTY, shown")
 W.fireEvent("ADDON_LOADED", "GamepadKeyboard")

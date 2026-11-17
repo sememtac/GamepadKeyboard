@@ -1260,7 +1260,16 @@ end
 
 local optionsPanel, optionsCategory;
 local LAYOUT_CHOICES = { { "qwerty", "QWERTY" }, { "dvorak", "Dvorak" } };
-local pickingLayout = false; -- a choice made in the layout dropdown (it shows its own choice)
+
+-- The layout after the current one (round to the first).
+local function NextLayout()
+	for i, layout in ipairs(LAYOUT_CHOICES) do
+		if layout[1] == Setting("layout") and LAYOUT_CHOICES[i + 1] then
+			return LAYOUT_CHOICES[i + 1][1];
+		end
+	end
+	return LAYOUT_CHOICES[1][1];
+end
 
 -- A change of layout shows at once if the keyboard is up on its letters.
 local function ApplyLayout()
@@ -1286,9 +1295,7 @@ local function UpdateOptionsPanel()
 	for key, check in pairs(optionsPanel.Checks) do
 		check:SetChecked(Setting(key));
 	end
-	if not pickingLayout then
-		optionsPanel.LayoutDropdown:GenerateMenu(); -- shows the layout chosen (after Defaults, say)
-	end
+	optionsPanel.LayoutDropdown:GenerateMenu(); -- shows the layout chosen (after Defaults, say)
 	optionsPanel.Steppers.holdTime.Value:SetText(("%.1f s"):format(Setting("holdTime")));
 	optionsPanel.Steppers.scale.Value:SetText(("%d%%"):format(Setting("scale") * 100 + 0.5));
 end
@@ -1377,9 +1384,13 @@ local function CreateOptionsPanel()
 
 	Check("autoOpen", "Open with the controller",
 		"Opens when you go to a text box with the controller: A on it, or Chat on the menu dial. A real keyboard or the mouse never opens it.");
-	-- Keyboard layout: Blizzard's own dropdown with < > steppers, as the dropdowns in Options are (its menu
-	-- system runs this addon's menu code isolated). The controller's cursor lands on the whole control, as
-	-- in Options; A opens the menu (called by SmartNavigation, isolated).
+	-- Keyboard layout: Blizzard's own dropdown with < > steppers, as the dropdowns in Options are; the
+	-- controller's cursor lands on the whole control, as in Options. Its menu never opens: a menu opened by
+	-- an addon has the controller UI suspend its focused frame as the addon's doing (FrameControlsManager's
+	-- MenuProxy.OnShow / OnClose aren't isolated), and that frame's footer bindings, put back on the close,
+	-- go on to block the interact icon and RB targeting ("blocked from an action only available to the
+	-- Blizzard UI": SetPreferredGamepadInteractTarget, TargetNearestEnemy). So a click or A on it picks the
+	-- next layout, and < > step (picking without a menu).
 	local layoutY = NextRow();
 	Label("Keyboard layout", 20, layoutY);
 	local layoutControl = CreateFrame("Frame", nil, panel, "SettingsDropdownWithButtonsTemplate");
@@ -1390,15 +1401,15 @@ local function CreateOptionsPanel()
 			rootDescription:CreateRadio(layout[2], function()
 				return Setting("layout") == layout[1];
 			end, function()
-				pickingLayout = true;
 				SetOption("layout", layout[1]);
-				pickingLayout = false;
 			end);
 		end
 	end);
+	function layoutControl.Dropdown:OpenMenu() -- (the click's way in: SetMenuOpen)
+		SetOption("layout", NextLayout());
+	end
 	function layoutControl:OnSmartNavClick()
-		self.Dropdown:MouseDown();
-		self.Dropdown:MouseUp();
+		SetOption("layout", NextLayout());
 		return true;
 	end
 	Describe(layoutControl.Dropdown, "Where the letters are. Numbers, symbols and the bottom row are the same in both.");
