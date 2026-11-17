@@ -26,25 +26,26 @@ the game's again.
 ## Chat
 
 Type the message and press **Enter**: it's sent and the chat closes, as with the Enter key. Whispers and
-replies keep their target, `/p` and the other prefixes switch the chat as when typing, numbered channels
-work, and a line starting with `/` runs as a command (`/dance`, `/cast`, `/target`). The chat type you
-sent in sticks for the next line, as it does with Enter. Enter with nothing typed just closes the chat.
-A chat line starts with Shift on. With **Close after Enter** off (Options), Enter sends and the keyboard
-stays on a fresh line in the same chat; B closes it.
+replies keep their target, numbered channels work, and a line starting with `/` runs as a command (`/p hi`,
+`/dance`, `/cast`, `/target`). The chat type you sent in sticks for the next line, as it does with Enter.
+Enter with nothing typed just closes the chat. A chat line starts with Shift on, and stops at what one chat
+line holds. With **Close after Enter** off (Options), Enter sends and the keyboard stays on a fresh line in
+the same chat; B closes it.
+
+The line is the keyboard's own: it shows in the keyboard's preview, not in the chat box, and goes out with
+Enter (How it works says why). A line closed without sending - B, combat, a real keyboard taking over,
+Edit Mode - waits, in its chat, for the next time the keyboard opens on chat (a whisper started meanwhile
+takes it); deleted with X, it leaves nothing. A link (shift-click on an item) while the keyboard is up goes
+into its line.
 
 The **chat key** (bottom row, beside Space) shows who you're talking to - Say, Party, To Bob, /2 - and
 steps on to the next chat type there is to use: Say, Party (in a group), Raid (in a raid), Instance (in an
-instance group), Guild (in a guild), the whisper the chat was in (opened from a name or the friends
-list, or typed with `/w`), and a reply to whoever whispered you last. What you've typed stays.
-It switches as typing `/p ` does - the type's slash command goes in front of the text and the chat box's
-own parsing switches the chat - so it's the same as typing the prefix yourself. A whisper is set as the
-chat's parser sets it (tell target, type, header): a name can't be typed in for it reliably, and a
-Battle.net name can't be typed at all.
+instance group), Guild (in a guild), the whisper the chat was in (opened from a name, or started while the
+keyboard was up), and a reply to whoever whispered you last. What you've typed stays.
 
-**B** goes back to the chat box with the text instead, unsent; the chat's own **A Send** sends it from
-there. Enter does that too, with a note in the chat, for the few lines it can't send itself: Battle.net
-whispers, chat types with no slash prefix, channels picked by name
-rather than number, and lines too long to fit with their prefix.
+Not **Battle.net whispers**, nor a chat with no slash command (voice text): Blizzard sends those only from
+its own chat box, so the keyboard doesn't open for them (it says so, once) - a real keyboard types there as
+usual.
 
 ## Boxes of several lines
 
@@ -97,21 +98,23 @@ Whichever you're using has the text box:
   that shows a link to copy, say) doesn't bring it up either. Chat on the menu dial brings it up whenever
   you want it.
 - While it's open over chat, **Enter on a real keyboard (or a click in the chat box) takes the chat back**:
-  the on-screen keyboard steps aside, and the text and its whisper target stay for the real keyboard to
-  carry on. Other keys do what they always do.
+  the on-screen keyboard steps aside and the chat box opens as Blizzard's Enter opens it (its usual chat,
+  shown in its header); the on-screen keyboard's line waits for next time. Other keys do what they always do.
 - The addon never listens to your keys, so the real keyboard always works as usual.
 
 ## Good to know
 
 - **Not in combat**: Blizzard's gamepad UI takes no addon windows in combat, so the keyboard doesn't open
-  then; a real keyboard types as always. If combat starts while it's open, it closes and the text stays.
+  then; a real keyboard types as always. If combat starts while it's open, it closes; a chat line waits for
+  next time, text in another box stays in the box.
 - **Where it opens**: beside the chat window for chat, near the text box otherwise - until it's placed in
   Edit Mode (or dragged with the mouse); `/gk reset` puts it back.
 - **Another text box in the same window** (the mail's Subject:): LT / RT to the window, D-pad to the box,
   A on it - the keyboard types there from then on; LT / RT back to the keyboard. A real keyboard or a
   mouse click in another box makes it step aside instead.
-- **A whisper started from a menu** (a name's Whisper, the chat's channels) while the keyboard is up: LT /
-  RT between the chat window and the keyboard keeps the chat to that person, and the chat key shows it.
+- **A whisper started from a menu** (a name's Whisper, the chat's channels) while the keyboard is up: the
+  keyboard's line goes to that person (the chat key shows it), LT / RT between the chat window and the
+  keyboard or not.
 - **Which text boxes**: chat, the mail's To: / Subject: / text, and other addons' text boxes. Not the
   game's other text boxes - the bag search, the Options search, confirmation popups, the Auction House
   and so on: what an addon types into one runs the game's own code as the addon's doing, and some of
@@ -140,18 +143,19 @@ the controller's); the mouse by `GLOBAL_MOUSE_DOWN`.
 Typing runs the box's own handlers as this addon's doing (tainted): a Blizzard box's can reach calls only
 Blizzard's UI may make (the bag search fires a synchronous inventory event whose listeners reach the
 gamepad action bar's `SetPreferredGamepadInteractTarget`; the Options search keeps its text for the
-panel's close, which then calls `SaveBindings`). So it types only into chat boxes (made for it), the mail's
-three boxes (looked through), and boxes none of whose text, Enter or focus handlers are Blizzard's
-(`issecurevalue`). A tapped A only ever clicks the keyboard's own keys.
+panel's close, which then calls `SaveBindings`). So it types only into the mail's three boxes (looked
+through) and boxes none of whose text, Enter or focus handlers are Blizzard's (`issecurevalue`) - and into
+no chat box at all (below). A tapped A only ever clicks the keyboard's own keys.
 
 Keys are only ever looked at, never listened to: a frame with `EnableKeyboard(true)` keeps every key it
 isn't allowed to pass on, and `SetPropagateKeyboardInput` is restricted in Forever (in combat at least).
 Text-box focus is hooked on the method table all text boxes share, taken from Blizzard's chat box: a text
 box made with `CreateFrame` is shown with auto-focus on and takes the real keyboard at login (0.2 to 0.4.1
-did that, so after a reload no key worked until something else took focus). Open over chat, the chat box has no typing focus; when it gets it back (Blizzard's Enter
-binding is `OpenChat(nil)`, which keeps the text), the keyboard closes. It reads the box before each key,
-so text typed into a box that kept focus is carried on, not overwritten - and checks it every frame while
-open, so when the game changes the box (the mail sent and cleared, a link put in) the preview follows at once.
+did that, so after a reload no key worked until something else took focus). Open over chat, the chat box
+has no typing focus; when it gets it back (Blizzard's Enter binding, a click), the keyboard steps aside.
+Outside chat it reads the box before each key, so text typed into a box that kept focus is carried on, not
+overwritten - and checks it every frame while open, so when the game changes the box (the mail sent and
+cleared) the preview follows at once.
 
 A, X, Y, LB and RB are override bindings (`SetOverrideBindingClick`, owner: the keyboard) that click a
 hidden secure A button, its Del and Space keys, and two hidden cursor buttons - the way the game's controller UI binds its own buttons
@@ -166,17 +170,27 @@ the Enter key, runs the Enter key's own PreClick / PostClick around Blizzard's s
 binding's click is a real press, so a held A sends just as A on the Enter key does. (Blizzard's own A
 clicks on the press, so a hold can't be told apart there: by then the key is typed.) The keyboard is a popup in Blizzard's gamepad UI
 (`HandlePopupShown` / `HandlePopupHide`, the functions it wraps for addons), so closing it returns the
-controller to the window the box belongs to. For a chat box, a single space is put in before the keyboard
-takes the controller: that keeps Blizzard from closing the empty box and resetting its chat type (a whisper
-target, say). The D-pad rows are SmartNavigation jump overrides.
+controller to the window the box belongs to. The D-pad rows are SmartNavigation jump overrides.
+
+Over chat it never writes into Blizzard's chat box. Typing there (`SetText`) runs the box's `OnTextChanged`
+as this addon's doing, and the fields that sets stay tainted for the session - every later `OnTextChanged`
+on the box reads them first, Blizzard's own included; with a real keyboard's name completion later (`/w
+Na...`) that reaches the chat's focus globals, the chat window's footer bindings and the controller's
+binding stack, where the interact icon (`SetPreferredGamepadInteractTarget`) and RB targeting
+(`TargetNearestEnemy`) were then blocked. So the line and its chat type are the keyboard's own. The chat
+type is read from the box's attributes as it opens (attributes come back clean: reading them, and the
+sticky type set after a send, are all it does to the box); a whisper started in the box while it's up is
+picked up; the box emptying and going back to its sticky type as it loses focus is left as Blizzard does
+it. Links come through a post-hook on `ChatFrameUtil.InsertLink`, when Blizzard found no active chat box
+for them.
 
 Enter never calls the chat's send code: addon code there would leave chat state that secure slash commands
 read later. The Enter key is a `SecureActionButtonTemplate` button with `type = "macro"`. Its PreClick turns
-the box's text and chat type into the line Enter would send (`/w Bob ...`, `/p ...`, `/2 ...`, or a typed
+the keyboard's line and chat type into the line Enter would send (`/w Bob ...`, `/p ...`, `/2 ...`, or a typed
 command as is), and Blizzard's secure macro action runs it when A is released. Macro lines go through
 Blizzard's own macro chat box (`MacroExecutionManager`), so they're parsed like typed lines. PostClick then
-does what Enter does after sending: the chat type sticks (for sticky types), the box is cleared, and the
-chat closes. In any other text box, Enter runs that box's own `OnEnterPressed`. Because the Enter key is
+does what Enter does after sending: the chat type sticks (the box's `stickyType` attribute, for sticky
+types), the line is cleared, and the chat closes. In any other text box, Enter runs that box's own `OnEnterPressed`. Because the Enter key is
 secure, the keyboard is a protected frame; it only opens out of combat and closes when combat starts.
 
 Names come from the box's own lookup - only when it's Blizzard's `C_AutoComplete.GetAutoCompleteResults`
@@ -209,20 +223,22 @@ multiplied by its scale when kept and divided when used - so it stays put at any
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 287 checks, with the focus manager and
-the chat box following Blizzard's code, every chat send function poisoned, the Enter key clicked the way
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 302 checks, with the focus manager and
+the chat box following Blizzard's code, every chat send function poisoned, every write into the chat box
+from the addon flagged, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
 focus, the menu dial's button already up), and real-keyboard keys delivered as the game delivers them
 (focused box first, then key listeners from the top strata down, then bindings), with
 `SetPropagateKeyboardInput` refused to addon code and auto-focus text boxes taking focus when shown. Only the game can confirm:
 
-- [ ] Chat (from the menu dial's Chat, or the chat binding): the keyboard opens; A on a key types into the
-      chat box.
+- [ ] Chat (from the menu dial's Chat, or the chat binding): the keyboard opens; A on a key types into its
+      line (its preview); the chat box stays empty.
 - [ ] Enter: the message is sent and the chat closes; with nothing typed, the chat just closes.
 - [ ] A whisper reply sent with Enter reaches the right player; `/p hello` goes to party and party is
       still the chat type next time; `/2 hello` goes to channel 2; `/dance` dances; `/cast` a spell
       casts it.
-- [ ] B: back on the chat box with the text and "A Send" showing; A sends it.
+- [ ] B: back on the chat box, nothing sent; Chat on the menu dial again brings the keyboard back with the
+      line, in its chat.
 - [ ] Tapping A types the key the D-pad is on; holding A (on any key) fills the ring on the footer's second
       A and lights the Enter key, and letting go sends (chat) or runs the box's Enter. After closing, A works as before everywhere.
 - [ ] X deletes, Y types a space, LB / RB move the gold cursor, and keys type at the cursor. With the
@@ -243,7 +259,7 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
 - [ ] Edit Mode: the keyboard shows with a blue selection, under Edit Mode's panels; dragging moves it, the
       mouse wheel resizes it; after Edit Mode it opens there at that size.
 - [ ] The chat key: in a group it goes Say -> Party (-> Raid / Instance / Guild / To <last whisperer>) and
-      back to Say, the chat box's header changes with it, the text stays, and Enter sends to that chat.
+      back to Say, the key's label changes with it, the text stays, and Enter sends to that chat.
 - [ ] LT / RT move between the keyboard and other open windows.
 - [ ] The keyboard can be dragged and reopens where it was left; for chat it doesn't cover the chat window.
 - [ ] After B, Chat on the menu dial (or A on a name box) brings the keyboard back.
@@ -253,8 +269,13 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
       real keyboard types and sends as usual.
 - [ ] Ctrl-click on an item: no on-screen keyboard.
 - [ ] With the on-screen keyboard open in chat, Enter on the real keyboard: the on-screen keyboard is gone,
-      the text is in the chat box, the real keyboard types on and sends.
+      the chat box opens for the real keyboard (its usual chat in the header), which types and sends; the
+      on-screen keyboard's line is back the next time it opens on chat.
 - [ ] Every key on the real keyboard works as before (walking, Escape, Ctrl, keybinds), with the on-screen
       keyboard open or closed.
 - [ ] Combat starting while typing: the keyboard closes without an "Interface action failed" or "blocked"
-      message, and the text is still in the chat box.
+      message, and the line is back the next time it opens on chat.
+- [ ] Shift-click an item while the keyboard is up over chat: the link goes into the line and is sent with it.
+- [ ] A Battle.net whisper (friends list): the keyboard doesn't open, a note says why.
+- [ ] Chat with the keyboard, then with the real keyboard in the same chat (a whisper with name completion,
+      `/w Na...`), then play on: no "blocked" messages; the interact icon and RB targeting work.

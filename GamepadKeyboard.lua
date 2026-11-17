@@ -3,16 +3,16 @@
 -- When a text box gets typing focus in the game's controller UI (out of combat), the keyboard opens as a
 -- popup in Blizzard's gamepad UI, like its own panels: the D-pad moves between keys (left / right along a
 -- row, up / down between rows), A types, Enter does what Enter does, B goes back without it. Each key
--- writes straight into the text box, which is the preview, and closing returns the controller to the
--- window the box belongs to.
+-- writes straight into the text box (over chat: into the keyboard's own line - see below), the keyboard's
+-- preview shows it, and closing returns the controller to the window the box belongs to.
 --
 -- Enter in chat sends the message and closes the chat, as Enter does - but not through the chat's send code,
 -- which addon code shouldn't run (it writes chat state that secure commands read later). The Enter key is a
 -- secure macro button: the message becomes the line Enter would send (/w Bob ..., /p ..., /2 ..., or a typed
--- command as is), run by Blizzard's secure macro action on the press. A chat type no macro line can say
--- goes back to the chat box instead, where the chat's own A sends it. Opening the keyboard moves the
--- controller off the chat box, which would close an empty box and reset its chat type (a whisper target,
--- say); a single space put in first keeps it open. Enter in any other box runs that box's own Enter action.
+-- command as is), run by Blizzard's secure macro action on the press. The chat box itself is never written:
+-- the line and its chat are the keyboard's own (what typing into the box sets off would stay the addon's
+-- doing, read by Blizzard's chat later); a line closed unsent waits for the next time. Chats no macro line
+-- can say (Battle.net whispers) it doesn't open for. Enter in any other box runs that box's own Enter action.
 --
 -- While it has the controller, X is Del, Y is Space, LB / RB move the cursor left and right, and holding A
 -- is Enter: override bindings that click those keys, as the game's controller UI binds its own buttons.
@@ -24,8 +24,7 @@
 -- Blizzard's list there only follows typing on a real keyboard and is picked with Tab or the mouse.
 --
 -- For chat, a chat key steps through the chat types there are to use (Say, Party, Raid, Instance, Guild,
--- a reply to the last whisper). It switches the way typing does: it puts the type's slash command before
--- the text, and the chat box's own parsing switches the chat and keeps the text.
+-- the whisper the chat was in, a reply to the last whisper): the line's chat, the text kept.
 --
 -- Whichever the player is using has the text box. The keyboard opens only when the controller asked for it
 -- (A on a text box, Chat on the menu dial) - not when a real keyboard opened the chat (Enter, /, reply) or
@@ -44,7 +43,6 @@
 local ADDON_NAME = ...;
 
 local KEY_WIDTH, KEY_HEIGHT, GAP = 36, 30, 4;
-local PLACEHOLDER = " ";
 
 local BACK, SHIFT, SYMBOLS, LETTERS, SPACE, ENTER, CHAT = "BACK", "SHIFT", "SYMBOLS", "LETTERS", "SPACE", "ENTER", "CHAT";
 local SPECIAL_KEYS = {
@@ -90,6 +88,13 @@ local target; -- the text box being typed into
 local isChat = false;
 local suggesting = false; -- the box looks names up (a row of name keys above the keys)
 local suggestions = {}; -- the name keys
+-- Over chat the line and its chat are the keyboard's own: typed here, sent with a secure macro line, never
+-- written into Blizzard's chat box. What typing there sets off (its text-changed fields, the chat type's
+-- parsing) would run as this addon's doing and stay so - read by Blizzard's chat later, on into the
+-- controller's bindings: blocked, blamed on the addon. The chat box is only read.
+local chat = {}; -- the chat the line goes to: { chatType, tellTarget, channelTarget }
+local seenChat; -- the chat box's own chat type last frame (to see a whisper started elsewhere)
+local chatDraft; -- a chat line closed unsent: { text, chat } - back the next time the keyboard opens on chat
 local whisperedTo; -- the whisper this chat was in while the keyboard was up: { chatType, target }
 local lastNamesBox; -- the last box typed into that isn't chat (for /gk names)
 local lastBoxName; -- the last box typed into (for a report if the game blocks the addon)
@@ -307,21 +312,60 @@ local function IsWhisper(chatType)
 	return chatType == "WHISPER" or chatType == "BN_WHISPER";
 end
 
-local function ChatLabel(box)
-	local chatType = box:GetAttribute("chatType");
+local function ChatLabel()
+	local chatType = chat.chatType;
 	if IsWhisper(chatType) then
-		local name = tostring(box:GetAttribute("tellTarget") or "");
-		if not name:find("^|K") then -- a Battle.net name shows as itself
-			name = name:gsub("%-.*$", "");
-			if Utf8Length(name) > 9 then
-				name = name:sub(1, 8) .. "..";
-			end
+		local name = tostring(chat.tellTarget or ""):gsub("%-.*$", "");
+		if Utf8Length(name) > 9 then
+			name = name:sub(1, 8) .. "..";
 		end
 		return "To " .. name;
 	elseif chatType == "CHANNEL" then
-		return "/" .. tostring(box:GetAttribute("channelTarget") or "?");
+		return "/" .. tostring(chat.channelTarget or "?");
 	end
 	return CHAT_LABELS[chatType] or "Chat";
+end
+
+-- A chat box's chat type as it is (its attributes: reading them is all the keyboard does to the box).
+local function ChatOf(box)
+	return { chatType = box:GetAttribute("chatType"), tellTarget = box:GetAttribute("tellTarget"),
+		channelTarget = box:GetAttribute("channelTarget") };
+end
+
+-- The macro line that says a message in a chat (a command - "/dance" - runs as typed); nil if no slash
+-- command can say it. Not Battle.net whispers: their name can be a protected string, which a macro line
+-- can't be trusted to keep - and Blizzard sends them only from its own chat box.
+local CHAT_COMMANDS = {
+	SAY = "/s", YELL = "/y", EMOTE = "/e", PARTY = "/p", RAID = "/ra", RAID_WARNING = "/rw",
+	INSTANCE_CHAT = "/i", GUILD = "/g", OFFICER = "/o",
+};
+local MAX_LINE = 255;
+
+local function ChatLine(message, to)
+	if message:sub(1, 1) == "/" then
+		return message;
+	elseif to.chatType == "WHISPER" then
+		return to.tellTarget and ("/w " .. to.tellTarget .. " " .. message);
+	elseif to.chatType == "CHANNEL" then
+		local channel = tonumber(to.channelTarget);
+		return channel and ("/" .. channel .. " " .. message);
+	elseif CHAT_COMMANDS[to.chatType] then
+		return CHAT_COMMANDS[to.chatType] .. " " .. message;
+	end
+end
+
+local function Sayable(to)
+	return ChatLine("x", to) ~= nil;
+end
+
+-- The chat the keyboard opens in over a chat box: an unsent line's own, unless a whisper was just started
+-- (a name's menu, the reply key) - else the box's.
+local function ChatFor(box)
+	local boxChat = ChatOf(box);
+	if chatDraft and not IsWhisper(boxChat.chatType) then
+		return chatDraft.chat;
+	end
+	return boxChat;
 end
 
 -- The byte just after the first `characters` characters of s.
@@ -394,16 +438,15 @@ local function UpdateChatKey()
 	if not (isChat and target) then
 		return;
 	end
-	local label = ChatLabel(target);
+	local label = ChatLabel();
 	for _, chatKey in ipairs(keyboard.ChatKeys) do
 		if chatKey:GetText() ~= label then
 			chatKey:SetText(label);
 		end
 	end
 	-- A whisper to someone other than whoever whispered last (they're the reply, always offered).
-	local chatType, tellTarget = target:GetAttribute("chatType"), target:GetAttribute("tellTarget");
-	if IsWhisper(chatType) and tellTarget and tellTarget ~= LastTell() then
-		whisperedTo = { chatType = chatType, target = tellTarget };
+	if chat.chatType == "WHISPER" and chat.tellTarget and chat.tellTarget ~= LastTell() then
+		whisperedTo = { chatType = chat.chatType, target = chat.tellTarget };
 	end
 end
 
@@ -455,19 +498,22 @@ end
 local function SetText(newText, newCursor)
 	text = newText;
 	cursor = newCursor or Utf8Length(text);
-	if target then
+	if target and not isChat then
 		target:SetText(text);
-		text = target:GetText() or ""; -- the box may change it (chat: "/p " switches to party chat)
+		text = target:GetText() or ""; -- the box may change it
 		cursor = math.min(cursor, Utf8Length(text));
 	end
 	UpdatePreview();
 end
 
--- The box may have changed under the keyboard (typed into on a real keyboard, a link put in): carry on from
--- what's in it. A chat box holding only the placeholder is still empty.
+-- The box may have changed under the keyboard (typed into on a real keyboard, the mail sent): carry on from
+-- what's in it. Not chat: there the line is the keyboard's own.
 local function Sync()
+	if isChat then
+		return;
+	end
 	local current = target and target:GetText() or "";
-	if not (isChat and current == PLACEHOLDER and text == "") and current ~= text then
+	if current ~= text then
 		text = current;
 		cursor = Utf8Length(text);
 	end
@@ -482,12 +528,19 @@ local function DeleteBack()
 end
 
 local function Insert(characters)
-	local maxLetters = target and target:GetMaxLetters() or 0;
-	if maxLetters > 0 and Utf8Length(text) + Utf8Length(characters) > maxLetters then
-		return;
-	end
 	local before, after = Split(text, cursor);
-	SetText(before .. characters .. after, cursor + Utf8Length(characters));
+	local newText = before .. characters .. after;
+	if isChat then
+		if #(ChatLine(newText, chat) or newText) > MAX_LINE then
+			return; -- (as long as one chat line can be)
+		end
+	else
+		local maxLetters = target and target:GetMaxLetters() or 0;
+		if maxLetters > 0 and Utf8Length(newText) > maxLetters then
+			return;
+		end
+	end
+	SetText(newText, cursor + Utf8Length(characters));
 end
 
 local function ChooseSuggestion(button)
@@ -537,10 +590,8 @@ local function Layout()
 	keyboard:SetHeight(84 + (#keys[page] + top) * (KEY_HEIGHT + GAP));
 end
 
--- The next chat type there is to use, after the box's own: its slash command goes before the text, and the
--- chat box's parsing (as when typing it) switches the chat and leaves the text.
 -- The chat types there are to use, then the whispers: the one this chat was in (opened from a name, say)
--- and a reply to whoever whispered last, once each.
+-- and a reply to whoever whispered last (not a Battle.net one: see ChatLine), once each.
 local function ChatTypesToUse()
 	local list = {};
 	for _, entry in ipairs(CHAT_TYPES) do
@@ -552,34 +603,23 @@ local function ChatTypesToUse()
 	if whisperedTo and whisperedTo.target ~= lastTell then
 		list[#list + 1] = whisperedTo;
 	end
-	if lastTell then
-		list[#list + 1] = { chatType = lastTellType, target = lastTell };
+	if lastTell and (lastTellType or "WHISPER") == "WHISPER" then
+		list[#list + 1] = { chatType = "WHISPER", target = lastTell };
 	end
 	return list;
 end
 
 local function NextChatType()
-	-- After the box's own type (a whisper: by who it's to); from anything else (a channel, say): Say.
+	-- After the line's own chat (a whisper: by who it's to); from anything else (a channel, say): Say.
 	local list = ChatTypesToUse();
-	local chatType, tellTarget = target:GetAttribute("chatType"), target:GetAttribute("tellTarget");
 	local current = 0;
 	for i, entry in ipairs(list) do
-		if entry.target and IsWhisper(chatType) and entry.target == tellTarget or not entry.target and entry.chatType == chatType then
+		if entry.target and chat.chatType == "WHISPER" and entry.target == chat.tellTarget or not entry.target and entry.chatType == chat.chatType then
 			current = i;
 		end
 	end
 	local nextType = list[current % #list + 1];
-	local keep = cursor;
-	if nextType.target then
-		-- A whisper as the chat's parser makes it (its tell target, its type, the header): a name can't be
-		-- typed in for it - "/w Name " waits while the name could still grow, a Battle.net name can't be typed.
-		target:SetTellTarget(nextType.target);
-		target:SetChatType(nextType.chatType);
-		target:UpdateHeader();
-	else
-		SetText(nextType.command .. " " .. text);
-	end
-	cursor = math.min(keep, Utf8Length(text));
+	chat = { chatType = nextType.chatType, tellTarget = nextType.target };
 	UpdatePreview();
 end
 
@@ -587,6 +627,12 @@ local function Close()
 	if keyboard and keyboard:IsShown() then
 		keyboard:Hide();
 	end
+end
+
+-- A chat line closed unsent (B, combat, a real keyboard taking over, another box) waits for the next time the
+-- keyboard opens on chat, in its chat; an empty one leaves nothing.
+local function KeepChatDraft()
+	chatDraft = text ~= "" and { text = text, chat = chat } or nil;
 end
 
 local function Press(button)
@@ -620,87 +666,51 @@ end
 -- The keyboard
 -------------------------------------------------------------------------------
 
--- The line Enter would send for a chat message, as a macro line: nil and false if there's nothing to send,
--- nil and true if no macro line can say it (the chat's own A sends it instead).
-local CHAT_COMMANDS = {
-	SAY = "/s", YELL = "/y", EMOTE = "/e", PARTY = "/p", RAID = "/ra", RAID_WARNING = "/rw",
-	INSTANCE_CHAT = "/i", GUILD = "/g", OFFICER = "/o", WHISPER = "/w",
-}; -- not BN_WHISPER: its target can be a protected name string, which a macro line can't be trusted to keep
-local MAX_LINE = 255;
-
-local function ChatLine(box)
-	local message = box:GetText() or "";
-	if message == "" or message == PLACEHOLDER then
-		return nil, false;
-	end
-	local line;
-	if message:sub(1, 1) == "/" then
-		line = message; -- a command, run as typed
-	else
-		local chatType = box:GetAttribute("chatType");
-		if chatType == "WHISPER" then
-			local tellTarget = box:GetAttribute("tellTarget");
-			line = tellTarget and ("/w " .. tellTarget .. " " .. message);
-		elseif chatType == "CHANNEL" then
-			local channel = tonumber(box:GetAttribute("channelTarget"));
-			line = channel and ("/" .. channel .. " " .. message);
-		elseif CHAT_COMMANDS[chatType] then
-			line = CHAT_COMMANDS[chatType] .. " " .. message;
-		end
-	end
-	if not line or #line > MAX_LINE then
-		return nil, true;
-	end
-	return line, false;
-end
-
 -- Before the secure macro action runs: the line to send (out of combat - the keyboard is closed in combat).
 local function EnterPreClick(button)
 	if InCombatLockdown() then
 		return; -- closed in combat (its line was emptied after the last press)
 	end
-	local line, cannot;
-	if target and isChat then
-		line, cannot = ChatLine(target);
+	local line;
+	if target and isChat and text ~= "" then
+		line = ChatLine(text, chat);
+		if line and #line > MAX_LINE then
+			line = nil; -- (the chat key moved it to a longer whisper)
+		end
 	end
-	button.handBack = cannot;
 	button:SetAttribute("macrotext", line or "");
 end
 
--- After it: chat closes like after Enter (the chat type sticks, as Enter makes it); a chat type no macro
--- line can say goes back to the chat box to send with A; any other box gets its own Enter action.
+-- After it: chat closes like after Enter (the chat type sticks, as Enter makes it - an attribute, which comes
+-- back clean); any other box gets its own Enter action.
 local function EnterPostClick(button)
 	if InCombatLockdown() then
 		return;
 	end
 	local sentLine = button:GetAttribute("macrotext") or "";
 	button:SetAttribute("macrotext", ""); -- nothing for a later press to send again
-	local box, chat = target, isChat;
+	local box, overChat = target, isChat;
 	if not box then
 		return;
 	end
-	if chat and button.handBack then
-		Close();
-		Print("this chat sends with A on the chat box.");
-		return;
-	end
-	if chat then
-		local chatType = box:GetAttribute("chatType");
-		local sent = sentLine ~= "" and (box:GetText() or ""):sub(1, 1) ~= "/";
-		if sent and ChatTypeInfo and ChatTypeInfo[chatType] and ChatTypeInfo[chatType].sticky == 1 then
-			box:SetAttribute("stickyType", chatType);
+	if overChat then
+		if sentLine == "" and text ~= "" then
+			Print(("too long to send to %s - a chat line is at most %d letters with its command."):format(ChatLabel(), MAX_LINE));
+			return;
 		end
+		local sent = sentLine ~= "" and text:sub(1, 1) ~= "/";
+		if sent and ChatTypeInfo and ChatTypeInfo[chat.chatType] and ChatTypeInfo[chat.chatType].sticky == 1 then
+			box:SetAttribute("stickyType", chat.chatType);
+		end
+		text, cursor = "", 0; -- sent: no line to keep
 		if not Setting("closeOnEnter") then
-			-- Staying open: the next line, in the same chat (its placeholder keeps the chat box open).
-			text, cursor = "", 0;
-			box:SetText(PLACEHOLDER);
+			-- Staying open: the next line, in the same chat.
 			shift = Setting("chatCapital");
 			UpdateLabels();
 			UpdatePreview();
 			return;
 		end
-		box:SetText("");
-		Close(); -- back on the chat box, now empty...
+		Close(); -- back on the chat box...
 		local manager = GetManager();
 		if manager and box.chatFrame then
 			pcall(manager.FrameHidden, manager, box.chatFrame); -- ...and the chat closes, as after Enter
@@ -1016,10 +1026,10 @@ local function CreateKeyboard()
 	end);
 	-- However it closes (Enter, B, Escape, combat): back to the window the box belongs to, which focuses the
 	-- box again - not a request for the keyboard - and the box isn't opened for again until focus moves
-	-- elsewhere or it's asked for again. An untouched chat box loses its placeholder.
+	-- elsewhere or it's asked for again. A chat line not sent waits for next time.
 	keyboard:SetScript("OnHide", function()
-		if isChat and target and target:GetText() == PLACEHOLDER then
-			target:SetText("");
+		if isChat and target then
+			KeepChatDraft();
 		end
 		handedBack = target;
 		ClearShortcuts();
@@ -1072,15 +1082,19 @@ local function SetTarget(box)
 	whisperedTo = nil; -- (the box's own, if it's in one, at the next preview)
 	isChat = box.chatFrame ~= nil;
 	suggesting = Setting("names") and LooksUpNames(box);
-	if not isChat then
+	if isChat then
+		-- The chat box empties and goes back to its usual chat as the controller moves to the keyboard; the
+		-- line and its chat stay here.
+		chat = ChatFor(box);
+		text = chatDraft and chatDraft.text or "";
+		chatDraft = nil;
+		local boxChat = ChatOf(box);
+		seenChat = tostring(boxChat.chatType) .. " " .. tostring(boxChat.tellTarget);
+	else
 		lastNamesBox = box;
+		text = box:GetText() or "";
 	end
-	text = box:GetText() or "";
 	cursor = Utf8Length(text);
-	if isChat and text == "" then
-		-- Keeps the chat box open, and its chat type, while the controller is on the keyboard.
-		box:SetText(PLACEHOLDER);
-	end
 	page = LettersPage();
 	shift = isChat and text == "" and Setting("chatCapital");
 end
@@ -1137,14 +1151,18 @@ end
 -- and a Blizzard box's can go on into calls only Blizzard's UI may make - the bag search's fires a
 -- synchronous inventory event whose listeners reach the gamepad action bar's interact target; the Options
 -- search keeps the text for the panel's close, right before it saves key bindings: "blocked from an action
--- only available to the Blizzard UI", blamed on this addon. So: chat boxes (their parsing is made for it),
--- the mail's boxes (looked through: their handlers only read the text and enable Send), and boxes whose
--- handlers aren't Blizzard's (another addon's). Not knowing (no issecurevalue): only those first two.
+-- only available to the Blizzard UI", blamed on this addon. So: chat boxes (never typed into: the keyboard
+-- keeps the line - in a chat a macro line can say), the mail's boxes (looked through: their handlers only
+-- read the text and enable Send), and boxes whose handlers aren't Blizzard's (another addon's). Not knowing
+-- (no issecurevalue): only those first two.
 local REVIEWED_BOXES = { SendMailNameEditBox = true, SendMailSubjectEditBox = true, SendMailBodyEditBox = true };
 local HANDLERS = { "OnTextChanged", "OnTextSet", "OnChar", "OnEnterPressed", "OnEscapePressed", "OnEditFocusGained", "OnEditFocusLost" };
 
 local function CanType(box)
-	if box.chatFrame or REVIEWED_BOXES[box:GetName() or ""] then
+	if box.chatFrame then
+		return Sayable(ChatFor(box));
+	end
+	if REVIEWED_BOXES[box:GetName() or ""] then
 		return true;
 	end
 	if not issecurevalue then
@@ -1159,11 +1177,18 @@ local function CanType(box)
 	return true;
 end
 
--- Said once a box: why the keyboard didn't come.
+-- Said once a box (a chat: once a chat type): why the keyboard didn't come.
 local toldAbout = {};
 
 local function TellCantType(box)
-	if not toldAbout[box] then
+	if box.chatFrame then
+		local chatType = tostring(ChatFor(box).chatType);
+		if not toldAbout[chatType] then
+			toldAbout[chatType] = true;
+			Print(("not for %s: Blizzard sends that only from its own chat box. A real keyboard types there as usual."):format(
+				chatType == "BN_WHISPER" and "Battle.net whispers" or ("this chat (" .. chatType .. ")")));
+		end
+	elseif not toldAbout[box] then
 		toldAbout[box] = true;
 		Print(("not for %s: it's the game's own text box, and typing into it from an addon gets the game to block the addon. A real keyboard types there as usual."):format(
 			box:GetName() or "this text box"));
@@ -1202,8 +1227,8 @@ local function SwitchTo(box)
 		TellCantType(box);
 		return;
 	end
-	if isChat and target and target:GetText() == PLACEHOLDER then
-		target:SetText(""); -- the chat box it leaves, as it was
+	if isChat then
+		KeepChatDraft(); -- (the chat line waits)
 	end
 	SetTarget(box);
 	Layout();
@@ -1240,6 +1265,17 @@ local function EditBoxMethods()
 	return getmetatable(box).__index;
 end
 hooksecurefunc(EditBoxMethods(), "SetFocus", Requested);
+-- A link (shift-click on an item) while the keyboard is up over chat: Blizzard puts links in the active chat
+-- box, and there's none then (the line is the keyboard's) - so it goes into the keyboard's line. Not when
+-- the auction house took it as a search.
+if ChatFrameUtil and ChatFrameUtil.InsertLink and ChatFrameUtil.GetActiveWindow then
+	hooksecurefunc(ChatFrameUtil, "InsertLink", function(link)
+		if keyboard and keyboard:IsShown() and isChat and target and type(link) == "string" and link ~= ""
+			and not ChatFrameUtil.GetActiveWindow() and not (AuctionHouseFrame and AuctionHouseFrame:IsVisible()) then
+			Insert(link);
+		end
+	end);
+end
 for index = 1, NUM_CHAT_WINDOWS or 10 do
 	local chatFrame = _G["ChatFrame" .. index];
 	if chatFrame and chatFrame.SetGamepadFocus then
@@ -1538,19 +1574,34 @@ watcher:SetScript("OnUpdate", function()
 		lastFocus = GetCurrentKeyBoardFocus(); -- in Edit Mode: not typing anywhere, and nothing to open after it
 		return;
 	end
-	-- Its box gone (the window closed, Enter hid it): the keyboard goes too.
-	if keyboard and keyboard:IsShown() and target and not target:IsVisible() then
+	-- Its box gone (the window closed, Enter hid it; for chat its window - the chat box itself can hide as it
+	-- empties): the keyboard goes too.
+	if keyboard and keyboard:IsShown() and target and not (isChat and target.chatFrame or target):IsVisible() then
 		Close();
 	end
 	if keyboard and keyboard:IsShown() and isChat and target then
-		-- Over chat, the chat box is never left empty: Blizzard closes an empty chat box that loses typing
-		-- focus and resets its chat type - and starting a whisper ("/w Name ", from a menu) empties it.
-		if target:GetText() == "" then
-			target:SetText(PLACEHOLDER);
+		-- A whisper started elsewhere while the keyboard is up (a name's menu, the reply key): the line goes
+		-- there. Other changes are the chat box's own (emptied as it lost focus: back to its usual chat).
+		local boxChat = ChatOf(target);
+		local seen = tostring(boxChat.chatType) .. " " .. tostring(boxChat.tellTarget);
+		if seen ~= seenChat then
+			seenChat = seen;
+			if IsWhisper(boxChat.chatType) and boxChat.tellTarget then
+				if Sayable(boxChat) then
+					chat = boxChat;
+					UpdatePreview();
+				else
+					local box = target;
+					Close(); -- (the line waits)
+					TellCantType(box);
+				end
+			end
 		end
+	end
+	if keyboard and keyboard:IsShown() and isChat and target then
 		UpdateChatKey();
 		-- The chat box has no typing focus while the controller is on the keyboard. Getting it back from a real
-		-- keyboard (Enter, /) or the mouse: this keyboard steps aside, the text stays. From the controller (LT
+		-- keyboard (Enter, /) or the mouse: this keyboard steps aside, its line waits. From the controller (LT
 		-- to the chat window): it stays.
 		local hasFocus = target:HasFocus();
 		if chatHadFocus == false and hasFocus and not ControllerAsked() then
