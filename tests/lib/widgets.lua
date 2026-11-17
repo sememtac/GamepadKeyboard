@@ -62,6 +62,7 @@ end
 function Region:SetShown(v) if v then self:Show() else self:Hide() end end
 function Region:GetParent() return self.parent end
 function Region:IsForbidden() return self.forbidden == true end
+function Region:GetSourceLocation() return self.sourceLocation end -- the file it was made in (nothing if unknown)
 function Region:IsObjectType(t)
 	if self.kind == t then return true end
 	if t == "Button" and self.kind == "CheckButton" then return true end
@@ -305,6 +306,7 @@ function W.CreateFrame(kind, name, parent, template)
 	end
 	if class == "EditBox" and hasTemplate(template, "InputBoxTemplate") then f.autoFocus = false end
 	if name then _G[name] = f end
+	f.sourceLocation = world and world.sourceLocation -- (made by the test: an addon's file, unless it says otherwise)
 	W.frames[#W.frames + 1] = f
 	return f
 end

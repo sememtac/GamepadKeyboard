@@ -145,8 +145,13 @@ Typing runs the box's own handlers as this addon's doing (tainted): a Blizzard b
 Blizzard's UI may make (the bag search fires a synchronous inventory event whose listeners reach the
 gamepad action bar's `SetPreferredGamepadInteractTarget`; the Options search keeps its text for the
 panel's close, which then calls `SaveBindings`). So it types only into the mail's three boxes (looked
-through) and boxes none of whose text, Enter or focus handlers are Blizzard's (`issecurevalue`) - and into
-no chat box at all (below). A tapped A only ever clicks the keyboard's own keys.
+through) and boxes another addon made - and into no chat box at all (below). Whose a box is comes from
+where it was made: the first named frame from the box up (short of `UIParent`) is Blizzard's if its global
+was set by Blizzard's code (`issecurevariable`), an addon's if not; with no named frame, the file it was
+made in (`GetSourceLocation`: Blizzard's own files, or an addon's); with neither, no keyboard. Not from the
+box's handlers: a value this addon reads comes back as its own, so `issecurevalue` never says Blizzard's -
+0.12 to 0.13.0 asked it, and in the game every box passed, the bag search too. A tapped A only ever clicks
+the keyboard's own keys.
 
 Keys are only ever looked at, never listened to: a frame with `EnableKeyboard(true)` keeps every key it
 isn't allowed to pass on, and `SetPropagateKeyboardInput` is restricted in Forever (in combat at least).
@@ -224,7 +229,7 @@ multiplied by its scale when kept and divided when used - so it stays put at any
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 302 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 305 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, every write into the chat box
 from the addon flagged, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
@@ -280,5 +285,7 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
       message, and the line is back the next time it opens on chat.
 - [ ] Shift-click an item while the keyboard is up over chat: the link goes into the line and is sent with it.
 - [ ] A Battle.net whisper (friends list): the keyboard doesn't open, a note says why.
+- [ ] A on the bag search box, the Options search, a confirmation popup's box: no keyboard (a note the first
+      time); closing the bags afterwards, no "blocked" message. Gesture Commands' name box still opens it.
 - [ ] Chat with the keyboard, then with the real keyboard in the same chat (a whisper with name completion,
       `/w Na...`), then play on: no "blocked" messages; the interact icon and RB targeting work.

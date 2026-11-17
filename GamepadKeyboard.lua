@@ -1153,10 +1153,32 @@ end
 -- search keeps the text for the panel's close, right before it saves key bindings: "blocked from an action
 -- only available to the Blizzard UI", blamed on this addon. So: chat boxes (never typed into: the keyboard
 -- keeps the line - in a chat a macro line can say), the mail's boxes (looked through: their handlers only
--- read the text and enable Send), and boxes whose handlers aren't Blizzard's (another addon's). Not knowing
--- (no issecurevalue): only those first two.
+-- read the text and enable Send), and boxes another addon made. Not knowing whose: none.
 local REVIEWED_BOXES = { SendMailNameEditBox = true, SendMailSubjectEditBox = true, SendMailBodyEditBox = true };
-local HANDLERS = { "OnTextChanged", "OnTextSet", "OnChar", "OnEnterPressed", "OnEscapePressed", "OnEditFocusGained", "OnEditFocusLost" };
+
+-- Whose a text box is - not from its handlers: a value this addon reads comes back as its own, so
+-- issecurevalue never says Blizzard's (in the game every box passed that, the bag search too). From where it
+-- was made: the first named frame from the box up (short of UIParent) is Blizzard's if its global was set
+-- by Blizzard's code (issecurevariable), an addon's if not; with none, the file it was made in
+-- (GetSourceLocation: Blizzard's own, or an addon's). nil: no telling.
+local function MadeByBlizzard(box)
+	if issecurevariable then
+		local frame = box;
+		while frame and frame ~= UIParent do
+			local name = frame:GetName();
+			if name and _G[name] == frame then
+				return issecurevariable(name) and true or false;
+			end
+			frame = frame:GetParent();
+		end
+	end
+	local location = box.GetSourceLocation and box:GetSourceLocation();
+	if (issecretvalue and issecretvalue(location)) or type(location) ~= "string" then
+		return nil;
+	end
+	location = location:lower():gsub("\\", "/");
+	return location:find("/addons/blizzard_", 1, true) ~= nil or not location:find("/addons/", 1, true);
+end
 
 local function CanType(box)
 	if box.chatFrame then
@@ -1165,16 +1187,7 @@ local function CanType(box)
 	if REVIEWED_BOXES[box:GetName() or ""] then
 		return true;
 	end
-	if not issecurevalue then
-		return false;
-	end
-	for _, handler in ipairs(HANDLERS) do
-		local script = box:GetScript(handler);
-		if script and issecurevalue(script) then
-			return false;
-		end
-	end
-	return true;
+	return MadeByBlizzard(box) == false;
 end
 
 -- Said once a box (a chat: once a chat type): why the keyboard didn't come.
@@ -1190,8 +1203,13 @@ local function TellCantType(box)
 		end
 	elseif not toldAbout[box] then
 		toldAbout[box] = true;
-		Print(("not for %s: it's the game's own text box, and typing into it from an addon gets the game to block the addon. A real keyboard types there as usual."):format(
-			box:GetName() or "this text box"));
+		if MadeByBlizzard(box) then
+			Print(("not for %s: it's the game's own text box, and typing into it from an addon gets the game to block the addon. A real keyboard types there as usual."):format(
+				box:GetName() or "this text box"));
+		else
+			Print(("not for %s: there's no telling whose text box it is (the game's own would get the addon blocked). A real keyboard types there as usual."):format(
+				box:GetName() or "this text box"));
+		end
 	end
 end
 

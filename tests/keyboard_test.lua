@@ -8,7 +8,8 @@ local check = H.check
 
 -- ---- a small game world -------------------------------------------------------------------------------
 local world = { combat = false, printed = {}, party = false, raid = false, instance = false, guild = false }
-W.install({ inCombat = function() return world.combat end, addonFile = "GamepadKeyboard.lua" })
+W.install({ inCombat = function() return world.combat end, addonFile = "GamepadKeyboard.lua",
+	sourceLocation = "Interface/AddOns/SomeAddon/SomeAddon.lua:1" })
 function InCombatLockdown() return world.combat end
 function print(s) world.printed[#world.printed + 1] = s end
 function strtrim(s) return (tostring(s or ""):gsub("^%s+", ""):gsub("%s+$", "")) end
@@ -26,10 +27,21 @@ function hooksecurefunc(t, k, fn)
 	t[k] = function(...) local r = { orig(...) }; fn(...); return unpack(r) end
 end
 NUM_CHAT_WINDOWS = 1
--- issecurevalue: true for a function of Blizzard's (the test marks the handlers that stand for Blizzard's).
-local blizzardFunctions = setmetatable({}, { __mode = "k" })
-local function blizzard(fn) blizzardFunctions[fn] = true; return fn end
-function issecurevalue(value) return blizzardFunctions[value] == true end
+-- Whose a frame is: issecurevariable(name) - a global set by Blizzard's code is secure, one an addon set
+-- names the addon - and GetSourceLocation, the file it was made in. Frames the test makes are an addon's
+-- unless marked Blizzard's. (No issecurevalue: on a value an addon reads it never says Blizzard's.)
+local blizzardGlobals = {}
+local function blizzardFrame(f)
+	blizzardGlobals[f:GetName() or ""] = true
+	f.sourceLocation = "Interface/AddOns/Blizzard_Test/Test.xml:1"
+	return f
+end
+function issecurevariable(t, k)
+	if k == nil then t, k = _G, t end
+	if t ~= _G then return true end
+	if blizzardGlobals[k] then return true end
+	return false, "SomeAddon"
+end
 LE_PARTY_CATEGORY_HOME, LE_PARTY_CATEGORY_INSTANCE = 1, 2
 function IsInGroup(category)
 	if category == LE_PARTY_CATEGORY_INSTANCE then return world.instance end
@@ -1055,13 +1067,11 @@ chatFrame:Show(); classicChat = false; chatBox:Show()
 endChat()
 
 -- ---- Blizzard's Settings panel: not for the keyboard ---------------------------------------------------------------
-SettingsPanel = W.CreateFrame("Frame", "SettingsPanel", UIParent)
-local settingsSearch = W.CreateFrame("EditBox", nil, SettingsPanel, "InputBoxTemplate")
-settingsSearch.scripts.OnTextChanged = blizzard(function() end) -- SearchBoxTemplate_OnTextChanged
+SettingsPanel = blizzardFrame(W.CreateFrame("Frame", "SettingsPanel", UIParent))
+local settingsSearch = W.CreateFrame("EditBox", nil, SettingsPanel, "InputBoxTemplate") -- (its own source: an addon's, say)
 settingsSearch.center = { 400, 700 }
 local bindingsPage = W.CreateFrame("Frame", nil, SettingsPanel)
 local bindingsSearch = W.CreateFrame("EditBox", nil, bindingsPage, "InputBoxTemplate")
-bindingsSearch.scripts.OnTextChanged = blizzard(function() end)
 bindingsSearch.center = { 400, 600 }
 manager:FrameShown(SettingsPanel)
 padA(function() settingsSearch:SetFocus() end)
@@ -1080,11 +1090,11 @@ padA(function() settingsSearch:SetFocus() end)
 check(not kb:IsShown(), "focus moving to the Options search box while it's open: it steps aside")
 settingsSearch:ClearFocus(); outside:ClearFocus(); manager:FrameHidden(SettingsPanel); poll()
 SettingsPanel = nil
--- The rule: chat, the mail's boxes, and boxes whose handlers aren't Blizzard's.
-local bags = W.CreateFrame("Frame", "ContainerFrameCombinedBags", UIParent)
-local bagSearch = W.CreateFrame("EditBox", "BagItemSearchBox", bags, "InputBoxTemplate")
+-- The rule: chat, the mail's boxes, and boxes another addon made - by the first named frame up, else the file.
+local bags = blizzardFrame(W.CreateFrame("Frame", "ContainerFrameCombinedBags", UIParent))
+local bagSearch = blizzardFrame(W.CreateFrame("EditBox", "BagItemSearchBox", bags, "InputBoxTemplate"))
 bagSearch.center = { 400, 300 }
-bagSearch.scripts.OnTextChanged = blizzard(function() end) -- BagSearch_OnTextChanged: SetItemSearch, a synchronous inventory event
+bagSearch.scripts.OnTextChanged = function() end -- BagSearch_OnTextChanged: SetItemSearch, a synchronous inventory event
 manager:FrameShown(bags)
 local printed = #world.printed
 padA(function() bagSearch:SetFocus() end)
@@ -1094,34 +1104,51 @@ bagSearch:ClearFocus(); poll()
 padA(function() bagSearch:SetFocus() end)
 check(not kb:IsShown() and #world.printed == printed + 1, "...said once, not every time")
 bagSearch:ClearFocus(); manager:FrameHidden(bags); poll()
-local popup = W.CreateFrame("Frame", "StaticPopup1", UIParent)
-local popupBox = W.CreateFrame("EditBox", "StaticPopup1EditBox", popup, "InputBoxTemplate")
+local popup = blizzardFrame(W.CreateFrame("Frame", "StaticPopup1", UIParent))
+local popupBox = blizzardFrame(W.CreateFrame("EditBox", "StaticPopup1EditBox", popup, "InputBoxTemplate"))
 popupBox.center = { 400, 600 }
-popupBox.scripts.OnEnterPressed = blizzard(function() end) -- StaticPopup_EditBoxOnEnterPressed: accepts the dialog
+popupBox.scripts.OnEnterPressed = function() end -- StaticPopup_EditBoxOnEnterPressed: accepts the dialog
 manager:FrameShown(popup)
 padA(function() popupBox:SetFocus() end)
-check(not kb:IsShown(), "a box whose Enter is Blizzard's (a confirmation popup): no keyboard either")
+check(not kb:IsShown(), "a confirmation popup's box (Blizzard's): no keyboard either")
 popupBox:ClearFocus(); manager:FrameHidden(popup); poll()
-local mailFrameReal = W.CreateFrame("Frame", "SendMailFrame", UIParent)
-local mailSubject = W.CreateFrame("EditBox", "SendMailSubjectEditBox", mailFrameReal, "InputBoxTemplate")
+local mailFrameReal = blizzardFrame(W.CreateFrame("Frame", "SendMailFrame", UIParent))
+local mailSubject = blizzardFrame(W.CreateFrame("EditBox", "SendMailSubjectEditBox", mailFrameReal, "InputBoxTemplate"))
 mailSubject.center = { 400, 650 }
-mailSubject.scripts.OnTextChanged = blizzard(function() end) -- SendMailFrame_CanSend
+mailSubject.scripts.OnTextChanged = function() end -- SendMailFrame_CanSend
 manager:FrameShown(mailFrameReal)
 padA(function() mailSubject:SetFocus() end)
 check(kb:IsShown(), "the mail's boxes: Blizzard's, but looked through - yes")
 kb:SmartNavigationCloseHandler(); mailSubject:ClearFocus(); manager:FrameHidden(mailFrameReal); poll()
 padA(function() outside:SetFocus() end)
-check(kb:IsShown(), "another addon's box (its own handlers): yes")
+check(kb:IsShown(), "another addon's box (unnamed, under UIParent: made in an addon's file): yes")
 kb:SmartNavigationCloseHandler(); outside:ClearFocus(); poll()
-local keepSecure = issecurevalue
-issecurevalue = nil
-padA(function() outside:SetFocus() end)
-check(not kb:IsShown(), "no way to tell (no issecurevalue): not another addon's box either")
-outside:ClearFocus(); poll()
+local addonWindow = W.CreateFrame("Frame", "SomeAddonWindow", UIParent)
+local addonBox = W.CreateFrame("EditBox", nil, addonWindow, "InputBoxTemplate")
+addonBox.center = { 400, 500 }; addonBox.sourceLocation = nil
+manager:FrameShown(addonWindow)
+padA(function() addonBox:SetFocus() end)
+check(kb:IsShown(), "a box in an addon's named window (its global the addon's): yes")
+kb:SmartNavigationCloseHandler(); addonBox:ClearFocus(); manager:FrameHidden(addonWindow); poll()
+local loose = W.CreateFrame("EditBox", nil, UIParent, "InputBoxTemplate")
+loose.center = { 400, 500 }; loose.sourceLocation = "Interface/AddOns/Blizzard_Communities/Blizzard_CommunitiesFrame.xml:12"
+padA(function() loose:SetFocus() end)
+check(not kb:IsShown(), "an unnamed box made in Blizzard's own file: no")
+loose:ClearFocus(); poll()
+loose.sourceLocation = "Interface/FrameXML/SomeFrame.xml:3"
+padA(function() loose:SetFocus() end)
+check(not kb:IsShown(), "...nor one made in the game's base UI files")
+loose:ClearFocus(); poll()
+local unknown = W.CreateFrame("EditBox", nil, UIParent, "InputBoxTemplate")
+unknown.center = { 400, 500 }; unknown.sourceLocation = nil
+local before = #world.printed
+padA(function() unknown:SetFocus() end)
+check(not kb:IsShown() and #world.printed == before + 1 and world.printed[#world.printed]:find("no telling", 1, true),
+	"no way to tell whose (no named window, no source file): no keyboard, and it says so")
+unknown:ClearFocus(); poll()
 openChat("SAY"); poll()
 check(kb:IsShown(), "...chat still")
 endChat()
-issecurevalue = keepSecure
 -- A tap only ever clicks the keyboard's own keys.
 openChat("SAY"); poll()
 local clicked = 0
