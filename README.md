@@ -226,6 +226,9 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
 - [ ] Options > AddOns > Gamepad Keyboard shows the seven options (Keyboard layout: Dvorak switches the letters at once);
       A on the Options search box or the bag search: no keyboard (a note the first time); no "blocked" dialog; each works (Close after Enter off: chat
       stays open for the next line). The panel is usable with the controller.
+- [ ] Keyboard layout dropdown: looks like the Options dropdowns; with the controller, A on it opens the
+      menu, the D-pad walks it, A picks (the menu closes, the dropdown shows the pick), B closes it unpicked;
+      the cursor sits sensibly on the row; with the mouse, < and > step it. No "blocked" dialog after.
 - [ ] Mail: after Send, the keyboard's preview (and the name row) is empty too.
 - [ ] Mail text (several lines): Enter / holding A start a new line; the preview shows "line 2 of 2".
 - [ ] Edit Mode: the keyboard shows with a blue selection, under Edit Mode's panels; dragging moves it, the
