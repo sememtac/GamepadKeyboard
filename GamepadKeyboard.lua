@@ -783,7 +783,8 @@ local function APostClick(button, _, down)
 	button.action, button.tapped = nil, nil;
 	if action == "enter" then
 		EnterPostClick(button);
-	elseif action == "tap" and tapped and tapped:IsVisible() and tapped:IsEnabled() then
+	elseif action == "tap" and tapped and tapped:GetParent() == keyboard and tapped:IsVisible() and tapped:IsEnabled() then
+		-- (only this keyboard's own keys: anything else clicked from here would run as this addon's doing)
 		tapped:Click();
 	end
 end
@@ -1132,24 +1133,45 @@ local function ControllerAsked()
 	return PadButtonDown() or lastInput == "gamepad";
 end
 
--- A text box in Blizzard's Settings panel (its search box, the key bindings' search): never. What's typed
--- there runs the panel's own handler as this addon's doing - the search box's keeps the text in the panel
--- (self.searchText), and as the panel closes it reads that back, redraws, and saves key bindings, which only
--- Blizzard's UI may do: "blocked from an action only available to the Blizzard UI". No way to type into a
--- box from an addon without that, so these are for a real keyboard.
-local function InSettingsPanel(box)
-	local frame = box;
-	while frame do
-		if frame == SettingsPanel then
-			return true;
-		end
-		frame = frame:GetParent();
+-- The text boxes it types into. What it types runs the box's own handlers as this addon's doing (tainted),
+-- and a Blizzard box's can go on into calls only Blizzard's UI may make - the bag search's fires a
+-- synchronous inventory event whose listeners reach the gamepad action bar's interact target; the Options
+-- search keeps the text for the panel's close, right before it saves key bindings: "blocked from an action
+-- only available to the Blizzard UI", blamed on this addon. So: chat boxes (their parsing is made for it),
+-- the mail's boxes (looked through: their handlers only read the text and enable Send), and boxes whose
+-- handlers aren't Blizzard's (another addon's). Not knowing (no issecurevalue): only those first two.
+local REVIEWED_BOXES = { SendMailNameEditBox = true, SendMailSubjectEditBox = true, SendMailBodyEditBox = true };
+local HANDLERS = { "OnTextChanged", "OnTextSet", "OnChar", "OnEnterPressed", "OnEscapePressed", "OnEditFocusGained", "OnEditFocusLost" };
+
+local function CanType(box)
+	if box.chatFrame or REVIEWED_BOXES[box:GetName() or ""] then
+		return true;
 	end
-	return false;
+	if not issecurevalue then
+		return false;
+	end
+	for _, handler in ipairs(HANDLERS) do
+		local script = box:GetScript(handler);
+		if script and issecurevalue(script) then
+			return false;
+		end
+	end
+	return true;
+end
+
+-- Said once a box: why the keyboard didn't come.
+local toldAbout = {};
+
+local function TellCantType(box)
+	if not toldAbout[box] then
+		toldAbout[box] = true;
+		Print(("not for %s: it's the game's own text box, and typing into it from an addon gets the game to block the addon. A real keyboard types there as usual."):format(
+			box:GetName() or "this text box"));
+	end
 end
 
 local function ShouldOpen(box)
-	return Setting("autoOpen")
+	if not (Setting("autoOpen")
 		and ControllerAsked()
 		and not InCombatLockdown()
 		and UsesGamepadUI()
@@ -1157,16 +1179,27 @@ local function ShouldOpen(box)
 		and not (keyboard and keyboard:IsShown())
 		and box:IsObjectType("EditBox")
 		and not box:IsForbidden()
-		and box:IsVisible()
-		and not InSettingsPanel(box);
+		and box:IsVisible()) then
+		return false;
+	end
+	if not CanType(box) then
+		TellCantType(box);
+		return false;
+	end
+	return true;
 end
 
 -- Typing focus went to another text box while the keyboard is open. The controller's doing (LT to the
 -- window, A on another box): the keyboard types there now - in place, the controller staying where it is
 -- (back to the keyboard with LT / RT). A real keyboard's or the mouse's: the keyboard steps aside.
 local function SwitchTo(box)
-	if not (ControllerAsked() and box:IsObjectType("EditBox") and not box:IsForbidden() and box:IsVisible() and not InSettingsPanel(box)) then
+	if not (ControllerAsked() and box:IsObjectType("EditBox") and not box:IsForbidden() and box:IsVisible()) then
 		Close();
+		return;
+	end
+	if not CanType(box) then
+		Close();
+		TellCantType(box);
 		return;
 	end
 	if isChat and target and target:GetText() == PLACEHOLDER then

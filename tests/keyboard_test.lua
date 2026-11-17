@@ -26,6 +26,10 @@ function hooksecurefunc(t, k, fn)
 	t[k] = function(...) local r = { orig(...) }; fn(...); return unpack(r) end
 end
 NUM_CHAT_WINDOWS = 1
+-- issecurevalue: true for a function of Blizzard's (the test marks the handlers that stand for Blizzard's).
+local blizzardFunctions = setmetatable({}, { __mode = "k" })
+local function blizzard(fn) blizzardFunctions[fn] = true; return fn end
+function issecurevalue(value) return blizzardFunctions[value] == true end
 LE_PARTY_CATEGORY_HOME, LE_PARTY_CATEGORY_INSTANCE = 1, 2
 function IsInGroup(category)
 	if category == LE_PARTY_CATEGORY_INSTANCE then return world.instance end
@@ -902,13 +906,16 @@ poll()
 -- ---- Blizzard's Settings panel: not for the keyboard ---------------------------------------------------------------
 SettingsPanel = W.CreateFrame("Frame", "SettingsPanel", UIParent)
 local settingsSearch = W.CreateFrame("EditBox", nil, SettingsPanel, "InputBoxTemplate")
+settingsSearch.scripts.OnTextChanged = blizzard(function() end) -- SearchBoxTemplate_OnTextChanged
 settingsSearch.center = { 400, 700 }
 local bindingsPage = W.CreateFrame("Frame", nil, SettingsPanel)
 local bindingsSearch = W.CreateFrame("EditBox", nil, bindingsPage, "InputBoxTemplate")
+bindingsSearch.scripts.OnTextChanged = blizzard(function() end)
 bindingsSearch.center = { 400, 600 }
 manager:FrameShown(SettingsPanel)
 padA(function() settingsSearch:SetFocus() end)
 check(not kb:IsShown(), "the Options search box: no keyboard (what's typed there would get the panel's close blocked)")
+check(world.printed[#world.printed]:find("game's own text box", 1, true), "...and it says why")
 settingsSearch:ClearFocus(); poll()
 padA(function() bindingsSearch:SetFocus() end)
 check(not kb:IsShown(), "...nor any text box inside the Options panel")
@@ -922,13 +929,64 @@ padA(function() settingsSearch:SetFocus() end)
 check(not kb:IsShown(), "focus moving to the Options search box while it's open: it steps aside")
 settingsSearch:ClearFocus(); outside:ClearFocus(); manager:FrameHidden(SettingsPanel); poll()
 SettingsPanel = nil
+-- The rule: chat, the mail's boxes, and boxes whose handlers aren't Blizzard's.
+local bags = W.CreateFrame("Frame", "ContainerFrameCombinedBags", UIParent)
+local bagSearch = W.CreateFrame("EditBox", "BagItemSearchBox", bags, "InputBoxTemplate")
+bagSearch.center = { 400, 300 }
+bagSearch.scripts.OnTextChanged = blizzard(function() end) -- BagSearch_OnTextChanged: SetItemSearch, a synchronous inventory event
+manager:FrameShown(bags)
+local printed = #world.printed
+padA(function() bagSearch:SetFocus() end)
+check(not kb:IsShown() and #world.printed == printed + 1 and world.printed[#world.printed]:find("BagItemSearchBox", 1, true),
+	"the bag search box (Blizzard's): no keyboard, and a note saying why")
+bagSearch:ClearFocus(); poll()
+padA(function() bagSearch:SetFocus() end)
+check(not kb:IsShown() and #world.printed == printed + 1, "...said once, not every time")
+bagSearch:ClearFocus(); manager:FrameHidden(bags); poll()
+local popup = W.CreateFrame("Frame", "StaticPopup1", UIParent)
+local popupBox = W.CreateFrame("EditBox", "StaticPopup1EditBox", popup, "InputBoxTemplate")
+popupBox.center = { 400, 600 }
+popupBox.scripts.OnEnterPressed = blizzard(function() end) -- StaticPopup_EditBoxOnEnterPressed: accepts the dialog
+manager:FrameShown(popup)
+padA(function() popupBox:SetFocus() end)
+check(not kb:IsShown(), "a box whose Enter is Blizzard's (a confirmation popup): no keyboard either")
+popupBox:ClearFocus(); manager:FrameHidden(popup); poll()
+local mailFrameReal = W.CreateFrame("Frame", "SendMailFrame", UIParent)
+local mailSubject = W.CreateFrame("EditBox", "SendMailSubjectEditBox", mailFrameReal, "InputBoxTemplate")
+mailSubject.center = { 400, 650 }
+mailSubject.scripts.OnTextChanged = blizzard(function() end) -- SendMailFrame_CanSend
+manager:FrameShown(mailFrameReal)
+padA(function() mailSubject:SetFocus() end)
+check(kb:IsShown(), "the mail's boxes: Blizzard's, but looked through - yes")
+kb:SmartNavigationCloseHandler(); mailSubject:ClearFocus(); manager:FrameHidden(mailFrameReal); poll()
+padA(function() outside:SetFocus() end)
+check(kb:IsShown(), "another addon's box (its own handlers): yes")
+kb:SmartNavigationCloseHandler(); outside:ClearFocus(); poll()
+local keepSecure = issecurevalue
+issecurevalue = nil
+padA(function() outside:SetFocus() end)
+check(not kb:IsShown(), "no way to tell (no issecurevalue): not another addon's box either")
+outside:ClearFocus(); poll()
+openChat("SAY"); poll()
+check(kb:IsShown(), "...chat still")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+issecurevalue = keepSecure
+-- A tap only ever clicks the keyboard's own keys.
+openChat("SAY"); poll()
+local clicked = 0
+local otherButton = W.CreateFrame("Button", "SomeBagItem", UIParent)
+otherButton.scripts.OnClick = function() clicked = clicked + 1 end
+navCurrent = otherButton
+pressA()
+check(clicked == 0 and kb:IsShown(), "A with SmartNavigation on someone else's button (focus just moving): not clicked from here")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 -- If the game blocks the addon anyway: what, and where it last typed.
 local printedBefore = #world.printed
 W.fireEvent("ADDON_ACTION_FORBIDDEN", "SomeOtherAddOn", "SaveBindings()")
 check(#world.printed == printedBefore, "(another addon blocked: not ours to report)")
 W.fireEvent("ADDON_ACTION_FORBIDDEN", "GamepadKeyboard", "SaveBindings()")
 check(#world.printed == printedBefore + 1 and world.printed[#world.printed]:find("SaveBindings()", 1, true)
-	and world.printed[#world.printed]:find("Blizzard UI only", 1, true) and world.printed[#world.printed]:find("Last typed into: an unnamed text box", 1, true),
+	and world.printed[#world.printed]:find("Blizzard UI only", 1, true) and world.printed[#world.printed]:find("Last typed into: ChatFrame1EditBox in ChatFrame1", 1, true),
 	"blocked anyway: it says what, and the last box it typed into (" .. world.printed[#world.printed] .. ")")
 
 -- ---- the chat key ------------------------------------------------------------------------------------------------
