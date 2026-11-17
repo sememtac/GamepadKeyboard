@@ -4,5 +4,6 @@
 ## Author: Catmemes
 ## Version: 0.13.1
 ## SavedVariables: GamepadKeyboardDB
+## IconTexture: Interface\AddOns\GamepadKeyboard\Icon
 
 GamepadKeyboard.lua
