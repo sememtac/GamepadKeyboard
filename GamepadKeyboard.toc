@@ -6,6 +6,7 @@
 ## SavedVariables: GamepadKeyboardDB
 ## X-License: MIT
 ## X-Website: https://github.com/sememtac/GamepadKeyboard
+## X-Curse-Project-ID: 1812929
 ## IconTexture: Interface\AddOns\GamepadKeyboard\Icon
 
 GamepadKeyboard.lua
