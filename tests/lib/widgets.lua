@@ -226,6 +226,34 @@ function W.CreateFrame(kind, name, parent, template)
 			self.parent:Hide()
 		end
 	end
+	if hasTemplate(template, "SettingsDropdownWithButtonsTemplate") then
+		-- Blizzard's dropdown with < > steppers (DropdownWithSteppersTemplate + WowStyle2DropdownTemplate). The
+		-- menu: SetupMenu's generator builds radios (CreateRadio(text, isSelected, setSelected)); the shown text
+		-- is the selected radio's; picking one (from the open menu, or a stepper) calls its setter, then the
+		-- dropdown updates to the selection.
+		local dropdown = W.CreateFrame("Button", nil, f)
+		function dropdown:GenerateMenu()
+			if self.menuOpen then -- (RegisterMenu: the open menu gets the new description, rebuilt without closing)
+				self.rebuiltWhileOpen = (self.rebuiltWhileOpen or 0) + 1
+			end
+			local radios = {}
+			local root = { CreateRadio = function(_, text, isSelected, setSelected) radios[#radios + 1] = { text = text, isSelected = isSelected, setSelected = setSelected } end }
+			self.generator(self, root)
+			self.radios, self.text = radios, nil
+			for i, radio in ipairs(radios) do if radio.isSelected() then self.text, self.selected = radio.text, i end end
+		end
+		function dropdown:SetupMenu(generator) self.generator = generator; self:GenerateMenu() end
+		function dropdown:Pick(i) self.radios[i].setSelected(); self.menuOpen = false; self:GenerateMenu() end
+		function dropdown:Increment() if self.radios[self.selected + 1] then self:Pick(self.selected + 1) end end
+		function dropdown:Decrement() if self.radios[self.selected - 1] then self:Pick(self.selected - 1) end end
+		function dropdown:MouseDown() end
+		function dropdown:MouseUp() self.menuOpen = true end
+		function dropdown:IsMenuOpen() return self.menuOpen == true end
+		f.Dropdown = dropdown
+		f.IncrementButton = W.CreateFrame("Button", nil, f); f.IncrementButton.scripts.OnClick = function() dropdown:Increment() end
+		f.DecrementButton = W.CreateFrame("Button", nil, f); f.DecrementButton.scripts.OnClick = function() dropdown:Decrement() end
+		f.Label = W.region("FontString", f)
+	end
 	if hasTemplate(template, "FocusFramesInterfaceTemplate") then
 		for _, key in ipairs({ "LeftJumpHint", "RightJumpHint", "FocusJumpHint" }) do
 			f[key] = W.CreateFrame("Frame", nil, f, "InputIconTextureFrameTemplate")

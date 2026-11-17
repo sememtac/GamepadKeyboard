@@ -1259,6 +1259,8 @@ end
 -- defaults, commit) the panel makes isolated, and this one has no OnShow (the panel shows it directly).
 
 local optionsPanel, optionsCategory;
+local LAYOUT_CHOICES = { { "qwerty", "QWERTY" }, { "dvorak", "Dvorak" } };
+local pickingLayout = false; -- a choice made in the layout dropdown (it shows its own choice)
 
 -- A change of layout shows at once if the keyboard is up on its letters.
 local function ApplyLayout()
@@ -1284,12 +1286,8 @@ local function UpdateOptionsPanel()
 	for key, check in pairs(optionsPanel.Checks) do
 		check:SetChecked(Setting(key));
 	end
-	for layout, button in pairs(optionsPanel.Layouts) do
-		if Setting("layout") == layout then
-			button:LockHighlight();
-		else
-			button:UnlockHighlight();
-		end
+	if not pickingLayout then
+		optionsPanel.LayoutDropdown:GenerateMenu(); -- shows the layout chosen (after Defaults, say)
 	end
 	optionsPanel.Steppers.holdTime.Value:SetText(("%.1f s"):format(Setting("holdTime")));
 	optionsPanel.Steppers.scale.Value:SetText(("%d%%"):format(Setting("scale") * 100 + 0.5));
@@ -1320,7 +1318,7 @@ end
 
 local function CreateOptionsPanel()
 	local panel = CreateFrame("Frame");
-	panel.Checks, panel.Layouts, panel.Steppers = {}, {}, {};
+	panel.Checks, panel.Steppers = {}, {};
 	local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge");
 	title:SetPoint("TOPLEFT", 16, -16);
 	title:SetText("Gamepad Keyboard");
@@ -1330,13 +1328,13 @@ local function CreateOptionsPanel()
 		y = y - 36;
 		return rowY;
 	end
-	local function Describe(widget, text)
-		widget:SetScript("OnEnter", function(self)
+	local function Describe(widget, text) -- (hooked: a template's own hover look stays)
+		widget:HookScript("OnEnter", function(self)
 			GameTooltip:SetOwner(self, "ANCHOR_RIGHT");
 			GameTooltip:SetText(text, nil, nil, nil, nil, true);
 			GameTooltip:Show();
 		end);
-		widget:SetScript("OnLeave", function()
+		widget:HookScript("OnLeave", function()
 			GameTooltip:Hide();
 		end);
 	end
@@ -1379,19 +1377,32 @@ local function CreateOptionsPanel()
 
 	Check("autoOpen", "Open with the controller",
 		"Opens when you go to a text box with the controller: A on it, or Chat on the menu dial. A real keyboard or the mouse never opens it.");
+	-- Keyboard layout: Blizzard's own dropdown with < > steppers, as the dropdowns in Options are (its menu
+	-- system runs this addon's menu code isolated). The controller's cursor lands on the whole control, as
+	-- in Options; A opens the menu (called by SmartNavigation, isolated).
 	local layoutY = NextRow();
 	Label("Keyboard layout", 20, layoutY);
-	for i, layout in ipairs({ { "qwerty", "QWERTY" }, { "dvorak", "Dvorak" } }) do
-		local button = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate");
-		button:SetSize(96, 26);
-		button:SetPoint("TOPLEFT", 220 + (i - 1) * 104, layoutY);
-		button:SetText(layout[2]);
-		button:SetScript("OnClick", function()
-			SetOption("layout", layout[1]);
-		end);
-		Describe(button, "Where the letters are. Numbers, symbols and the bottom row are the same in both.");
-		panel.Layouts[layout[1]] = button;
+	local layoutControl = CreateFrame("Frame", nil, panel, "SettingsDropdownWithButtonsTemplate");
+	layoutControl:SetPoint("TOPLEFT", 200, layoutY + 6);
+	layoutControl.Dropdown:SetWidth(180);
+	layoutControl.Dropdown:SetupMenu(function(_, rootDescription)
+		for _, layout in ipairs(LAYOUT_CHOICES) do
+			rootDescription:CreateRadio(layout[2], function()
+				return Setting("layout") == layout[1];
+			end, function()
+				pickingLayout = true;
+				SetOption("layout", layout[1]);
+				pickingLayout = false;
+			end);
+		end
+	end);
+	function layoutControl:OnSmartNavClick()
+		self.Dropdown:MouseDown();
+		self.Dropdown:MouseUp();
+		return true;
 	end
+	Describe(layoutControl.Dropdown, "Where the letters are. Numbers, symbols and the bottom row are the same in both.");
+	panel.LayoutDropdown = layoutControl.Dropdown;
 	Check("closeOnEnter", "Close after Enter",
 		"Enter sends a chat line and closes the chat, or runs a text box's Enter and closes the keyboard. Off: the keyboard stays open for the next line.");
 	Check("chatCapital", "Capital letter to start a chat line", "A chat line starts with Shift on.");

@@ -55,8 +55,8 @@ To: moves on to Subject: (the box's own Enter), and the keyboard follows it ther
 
 ## Options
 
-Options > AddOns > **Gamepad Keyboard** (or `/gk`) - checkboxes, two layout buttons, and - / + for the
-numbers; the panel's Defaults button puts them all back:
+Options > AddOns > **Gamepad Keyboard** (or `/gk`) - checkboxes, a dropdown with < > like the ones in
+Options, and - / + for the numbers; the panel's Defaults button puts them all back:
 
 | Option | Does |
 | --- | --- |
@@ -188,7 +188,11 @@ at `ADDON_LOADED`), not Blizzard's list of controls: the panel keeps a list cont
 functions - a dropdown's choices, a slider's label) as the addon gave them, and as it hides it clears its
 search box - which redraws the page - and then saves key bindings, which only Blizzard's UI may do. With
 the addon's controls on that page, that was "blocked from an action only available to the Blizzard UI".
-A canvas page the panel only shows, and calls its refresh and defaults isolated; this one has no OnShow. Edit Mode is followed through
+A canvas page the panel only shows, and calls its refresh and defaults isolated; this one has no OnShow.
+The layout dropdown is Blizzard's own (`SettingsDropdownWithButtonsTemplate`, the frame the Options
+dropdowns use) on that page: the menu system runs the addon's choices and their picks isolated, and the
+controller's A on it calls the control's `OnSmartNavClick` isolated too. A pick doesn't redraw the menu it
+was made in (that rebuilds the open menu under its own click); Defaults and the steppers redraw it. Edit Mode is followed through
 `EventRegistry` (`EditMode.Enter` / `EditMode.Exit`); in it the keyboard is a preview on the HIGH layer
 (under Edit Mode's DIALOG panels) that never registers with the gamepad UI or follows typing focus. Saved
 positions are kept in UIParent's units - a frame's offsets are in its own scaled units, so they're
@@ -196,7 +200,7 @@ multiplied by its scale when kept and divided when used - so it stays put at any
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 269 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 276 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
 focus, the menu dial's button already up), and real-keyboard keys delivered as the game delivers them

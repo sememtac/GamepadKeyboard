@@ -361,7 +361,9 @@ local S = setmetatable({}, { __index = function(_, key)
 			if page.Checks[key] then
 				if (optionValue(key) and true or false) ~= value then page.Checks[key]:Click() end
 			elseif key == "layout" then
-				page.Layouts[value]:Click()
+				local dropdown = page.LayoutDropdown
+				dropdown:MouseDown(); dropdown:MouseUp() -- the menu open
+				for i, radio in ipairs(dropdown.radios) do if radio.text:lower() == value then dropdown:Pick(i) end end
 			else
 				local stepper, step = page.Steppers[key], key == "scale" and 0.05 or 0.1
 				for _ = 1, 40 do
@@ -377,12 +379,27 @@ end })
 check(optionsPanel.addOnCategory and optionsPanel.addOnCategory.name == "Gamepad Keyboard" and optionsPanel.registered == 1 and page,
 	"Options > AddOns > Gamepad Keyboard: its own page")
 check(page.Checks.autoOpen and page.Checks.closeOnEnter and page.Checks.chatCapital and page.Checks.names
-	and page.Layouts.qwerty.text == "QWERTY" and page.Layouts.dvorak.text == "Dvorak" and page.Steppers.holdTime and page.Steppers.scale,
+	and page.LayoutDropdown and page.Steppers.holdTime and page.Steppers.scale,
 	"...open with the controller, keyboard layout (QWERTY / Dvorak), close after Enter, capital, names, hold time, size")
 check(page.scripts.OnShow == nil and page.OnRefresh and page.OnDefault, "...no OnShow (the panel shows it unguarded); refresh and defaults for the panel")
-check(page.Checks.autoOpen.checked and page.Checks.closeOnEnter.checked and page.Layouts.qwerty.locked and not page.Layouts.dvorak.locked
+check(page.Checks.autoOpen.checked and page.Checks.closeOnEnter.checked and page.LayoutDropdown.text == "QWERTY"
 	and page.Steppers.holdTime.Value.text == "0.5 s" and page.Steppers.scale.Value.text == "100%", "...showing the defaults")
 check(next(savedTable) == nil, "...nothing written to the saved table until something's changed")
+-- Keyboard layout: Blizzard's Options dropdown (with < > steppers).
+local layoutControl, layoutDropdown = page.LayoutDropdown.parent, page.LayoutDropdown
+check(layoutControl.template == "SettingsDropdownWithButtonsTemplate" and #layoutDropdown.radios == 2
+	and layoutDropdown.radios[1].text == "QWERTY" and layoutDropdown.radios[2].text == "Dvorak",
+	"Keyboard layout: the Options dropdown (with < >), QWERTY or Dvorak")
+check(layoutControl:OnSmartNavClick() and layoutDropdown:IsMenuOpen(), "...A on it with the controller opens its menu")
+layoutDropdown:Pick(2)
+check(savedTable.layout == "dvorak" and layoutDropdown.text == "Dvorak" and not layoutDropdown:IsMenuOpen(), "...picking Dvorak: saved, shown")
+check(not layoutDropdown.rebuiltWhileOpen, "...the open menu not rebuilt under the pick (only after it)")
+layoutControl.DecrementButton:Click()
+check(savedTable.layout == "qwerty" and layoutDropdown.text == "QWERTY", "...the < stepper: back to QWERTY")
+layoutControl.IncrementButton:Click()
+check(savedTable.layout == "dvorak", "...the > stepper: Dvorak")
+page.OnDefault(page)
+check(savedTable.layout == "qwerty" and layoutDropdown.text == "QWERTY", "...Defaults: QWERTY, shown")
 W.fireEvent("ADDON_LOADED", "GamepadKeyboard")
 check(optionsPanel.registered == 1, "(registered once)")
 page.Steppers.holdTime.Plus:Click(); page.Steppers.holdTime.Plus:Click()
