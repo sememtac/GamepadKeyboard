@@ -148,7 +148,8 @@ Text-box focus is hooked on the method table all text boxes share, taken from Bl
 box made with `CreateFrame` is shown with auto-focus on and takes the real keyboard at login (0.2 to 0.4.1
 did that, so after a reload no key worked until something else took focus). Open over chat, the chat box has no typing focus; when it gets it back (Blizzard's Enter
 binding is `OpenChat(nil)`, which keeps the text), the keyboard closes. It reads the box before each key,
-so text typed into a box that kept focus is carried on, not overwritten.
+so text typed into a box that kept focus is carried on, not overwritten - and checks it every frame while
+open, so when the game changes the box (the mail sent and cleared, a link put in) the preview follows at once.
 
 A, X, Y, LB and RB are override bindings (`SetOverrideBindingClick`, owner: the keyboard) that click a
 hidden secure A button, its Del and Space keys, and two hidden cursor buttons - the way the game's controller UI binds its own buttons
@@ -195,7 +196,7 @@ multiplied by its scale when kept and divided when used - so it stays put at any
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 264 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 269 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
 focus, the menu dial's button already up), and real-keyboard keys delivered as the game delivers them
@@ -221,6 +222,7 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
 - [ ] Options > AddOns > Gamepad Keyboard shows the seven options (Keyboard layout: Dvorak switches the letters at once);
       A on the Options search box or the bag search: no keyboard (a note the first time); no "blocked" dialog; each works (Close after Enter off: chat
       stays open for the next line). The panel is usable with the controller.
+- [ ] Mail: after Send, the keyboard's preview (and the name row) is empty too.
 - [ ] Mail text (several lines): Enter / holding A start a new line; the preview shows "line 2 of 2".
 - [ ] Edit Mode: the keyboard shows with a blue selection, under Edit Mode's panels; dragging moves it, the
       mouse wheel resizes it; after Edit Mode it opens there at that size.

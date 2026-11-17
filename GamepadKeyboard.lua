@@ -1527,6 +1527,15 @@ watcher:SetScript("OnUpdate", function()
 		end
 		chatHadFocus = hasFocus;
 	end
+	-- Its box changed under it (the mail sent and its boxes cleared, a box's Enter, a link put in): the
+	-- preview, cursor and name keys follow at once, not at the next key.
+	if keyboard and keyboard:IsShown() and target then
+		local before = text;
+		Sync();
+		if text ~= before then
+			UpdatePreview();
+		end
+	end
 	local focus = GetCurrentKeyBoardFocus();
 	if focus == lastFocus then
 		return;

@@ -763,6 +763,31 @@ mail:Hide(); poll()
 check(not kb:IsShown(), "the window closed: the keyboard goes with its box")
 mail:Show(); mailTo:ClearFocus(); mailTo.text = ""; mailBody.text = ""; manager:FrameHidden(mail); poll()
 
+-- Its box cleared by the game (the mail sent): the preview and the names follow at once.
+manager:FrameShown(mail)
+padA(function() mailTo:SetFocus() end)
+type("bo")
+check(preview() == "bo|" and shownNames() ~= "", "(typed in To:, names showing)")
+mailTo:SetText("") -- SendMailFrame_Reset, after Send
+poll()
+check(preview() == "|" and shownNames() == "", "the mail sent (its boxes cleared): the preview and the names clear at once")
+type("al")
+check(mailTo:GetText() == "al", "...and typing starts afresh")
+kb:SmartNavigationCloseHandler(); mailTo:ClearFocus(); mailTo.text = ""; manager:FrameHidden(mail); poll()
+padA(function() mailBody:SetFocus() end)
+type("hi"); playerClick(key("ENTER")); type("yo")
+mailBody:SetText("")
+poll()
+check(preview() == "|" and kb:IsShown(), "...the mail's text too (several lines)")
+kb:SmartNavigationCloseHandler(); mailBody:ClearFocus(); poll()
+-- A link put in the chat box while the keyboard is up (shift-click on an item): the preview shows it.
+openChat("SAY"); poll()
+type("look ")
+chatBox:SetText(chatBox:GetText() .. "[Sword]")
+poll()
+check(preview() == "Look [Sword]|", "something put in the box from elsewhere (a link): the preview shows it, the cursor at the end")
+kb:SmartNavigationCloseHandler(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+
 -- Only Blizzard's own lookup, never a box's own function or completion handler.
 local custom = W.CreateFrame("EditBox", nil, mail, "InputBoxTemplate")
 custom.center = { 400, 700 }
