@@ -31,12 +31,30 @@ function Region:IsVisible()
 	if self.parent and self.parent.IsVisible then return self.parent:IsVisible() end
 	return true
 end
+-- In combat, addon code can't show, hide or re-layer a protected frame, nor one holding protected frames (a
+-- protected child makes its parents protected too): blocked, "Interface action failed".
+local function RefusedInCombat(self)
+	if not (self.scripts and world and world.inCombat() and not W.inSecure) then return false end
+	local protected = self.protected
+	for _, f in ipairs(W.frames) do
+		if protected then break end
+		if f.protected then
+			local p = f.parent
+			while p and p ~= self do p = p.parent end
+			protected = p == self
+		end
+	end
+	if protected then W.blockedMessages = (W.blockedMessages or 0) + 1 end
+	return protected
+end
 function Region:Show()
+	if RefusedInCombat(self) then return end
 	local was = self.shown
 	self.shown = true
 	if not was and self.scripts and self.scripts.OnShow then self.scripts.OnShow(self) end
 end
 function Region:Hide()
+	if RefusedInCombat(self) then return end
 	local was = self.shown
 	self.shown = false
 	if was and self.scripts and self.scripts.OnHide then self.scripts.OnHide(self) end
@@ -92,7 +110,7 @@ function Frame:GetAttribute(k) return self.attrs[k] end
 function Frame:CreateTexture() return W.region("Texture", self) end
 function Frame:CreateFontString() return W.region("FontString", self) end
 function Frame:CreateMaskTexture() return W.region("MaskTexture", self) end
-function Frame:SetFrameStrata(v) self.strata = v end
+function Frame:SetFrameStrata(v) if not RefusedInCombat(self) then self.strata = v end end
 function Frame:GetFrameStrata() return self.strata or "MEDIUM" end
 function Frame:SetFrameLevel(v) self.level = v end
 function Frame:GetFrameLevel() return self.level or 1 end
@@ -189,9 +207,25 @@ end
 local CLASSES = { Texture = Texture, FontString = FontString, MaskTexture = MaskTexture, Frame = Frame, Button = Button,
 	CheckButton = CheckButton, EditBox = EditBox, InputIcon = InputIcon }
 
+-- A forbidden object (Blizzard's store, Communities' secure boxes): addon code may only ask IsForbidden, any
+-- other method errors (world.addonFile names the addon's source; the test's own calls stand for the game's).
 local function new(kind, parent, class)
 	local o = { kind = kind, parent = parent, shown = true, scripts = {}, attrs = {}, events = {}, enabled = true, checked = false }
-	return setmetatable(o, { __index = CLASSES[class or kind] or Frame })
+	local methods = CLASSES[class or kind] or Frame
+	local forbidden = { __index = function(_, k)
+		local v = methods[k]
+		if type(v) == "function" and k ~= "IsForbidden" and world and world.addonFile then
+			local caller = debug.getinfo(2, "S")
+			if caller and caller.source:find(world.addonFile, 1, true) then
+				return function() error("forbidden object: " .. k .. " called from the addon", 2) end
+			end
+		end
+		return v
+	end }
+	return setmetatable(o, { __index = methods, __newindex = function(t, k, v)
+		rawset(t, k, v)
+		if k == "forbidden" and v then setmetatable(t, forbidden) end
+	end })
 end
 
 function W.region(kind, parent)

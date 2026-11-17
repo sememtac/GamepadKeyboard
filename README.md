@@ -55,7 +55,7 @@ To: moves on to Subject: (the box's own Enter), and the keyboard follows it ther
 
 ## Options
 
-Options > AddOns > **Gamepad Keyboard** (or `/gk`) - checkboxes, a dropdown with < > like the ones in
+Options > AddOns > **Gamepad Keyboard** - checkboxes, a dropdown with < > like the ones in
 Options (A or a click on it picks the next layout - see below for why it doesn't open a list), and - / +
 for the numbers; the panel's Defaults button puts them all back:
 
@@ -123,7 +123,8 @@ Whichever you're using has the text box:
   `/gk names` says what the game's name lookup finds for it (or why it doesn't run).
 - **Bringing it back** after going back to a text box (or after the real keyboard took over): A on the box
   again, or Chat on the menu dial again.
-- `/gk` opens its options; `/gk off` stops it opening by itself, `/gk on` turns it back on.
+- `/gk` says where its options are (Game Menu > Options > AddOns); `/gk off` stops it opening by itself,
+  `/gk on` turns it back on.
 - No `|` key: the game reads it as the start of an escape code.
 
 ## How it works
@@ -199,13 +200,16 @@ icon) and `TargetNearestEnemy()` (RB) for the rest of the session. So the dropdo
 click goes) and the control's `OnSmartNavClick` (the controller's A) pick the next layout, and the
 steppers pick without a menu. Edit Mode is followed through
 `EventRegistry` (`EditMode.Enter` / `EditMode.Exit`); in it the keyboard is a preview on the HIGH layer
-(under Edit Mode's DIALOG panels) that never registers with the gamepad UI or follows typing focus. Saved
+(under Edit Mode's DIALOG panels) that never registers with the gamepad UI or follows typing focus. The
+keyboard holds secure buttons, so in combat only Blizzard's UI may hide it or change its layer: the
+preview goes as combat starts, and Edit Mode opened or left in combat is caught up as combat ends. A
+forbidden text box (the shop's, say) is only ever asked `IsForbidden`. Saved
 positions are kept in UIParent's units - a frame's offsets are in its own scaled units, so they're
 multiplied by its scale when kept and divided when used - so it stays put at any size.
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 278 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 287 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
 focus, the menu dial's button already up), and real-keyboard keys delivered as the game delivers them

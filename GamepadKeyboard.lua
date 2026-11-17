@@ -1171,14 +1171,14 @@ local function TellCantType(box)
 end
 
 local function ShouldOpen(box)
-	if not (Setting("autoOpen")
+	if not (not box:IsForbidden() -- (first: a forbidden box answers nothing else)
+		and Setting("autoOpen")
 		and ControllerAsked()
 		and not InCombatLockdown()
 		and UsesGamepadUI()
 		and GetManager() ~= nil
 		and not (keyboard and keyboard:IsShown())
 		and box:IsObjectType("EditBox")
-		and not box:IsForbidden()
 		and box:IsVisible()) then
 		return false;
 	end
@@ -1193,7 +1193,7 @@ end
 -- window, A on another box): the keyboard types there now - in place, the controller staying where it is
 -- (back to the keyboard with LT / RT). A real keyboard's or the mouse's: the keyboard steps aside.
 local function SwitchTo(box)
-	if not (ControllerAsked() and box:IsObjectType("EditBox") and not box:IsForbidden() and box:IsVisible()) then
+	if box:IsForbidden() or not (ControllerAsked() and box:IsObjectType("EditBox") and box:IsVisible()) then
 		Close();
 		return;
 	end
@@ -1219,7 +1219,7 @@ end
 -- Asked for again on a box that already has focus (A on a name box again, Chat chosen again on the menu
 -- dial): no focus change to watch, so these are hooked. Not while closing, which focuses the box itself.
 local function Requested(box)
-	if closing or not (box and box:HasFocus()) then
+	if closing or not box or box:IsForbidden() or not box:HasFocus() then
 		return;
 	end
 	if ShouldOpen(box) then
@@ -1258,7 +1258,7 @@ end
 -- which only Blizzard's UI may do - blocked, and blamed on the addon. A canvas page's own calls (refresh,
 -- defaults, commit) the panel makes isolated, and this one has no OnShow (the panel shows it directly).
 
-local optionsPanel, optionsCategory;
+local optionsPanel;
 local LAYOUT_CHOICES = { { "qwerty", "QWERTY" }, { "dvorak", "Dvorak" } };
 
 -- The layout after the current one (round to the first).
@@ -1440,8 +1440,7 @@ local function RegisterOptions()
 		return;
 	end
 	optionsPanel = CreateOptionsPanel();
-	optionsCategory = Settings.RegisterCanvasLayoutCategory(optionsPanel, "Gamepad Keyboard");
-	Settings.RegisterAddOnCategory(optionsCategory);
+	Settings.RegisterAddOnCategory(Settings.RegisterCanvasLayoutCategory(optionsPanel, "Gamepad Keyboard"));
 	UpdateOptionsPanel();
 end
 
@@ -1450,6 +1449,7 @@ end
 -------------------------------------------------------------------------------
 
 local EDIT_MODE_STRATA = "HIGH"; -- under Edit Mode's own panels (DIALOG)
+local inEditMode = false;
 
 
 -- Its selection: drag to move, mouse wheel to resize (Blizzard's selection templates call back into Edit
@@ -1482,8 +1482,9 @@ local function CreateEditModeOverlay()
 end
 
 local function EditModeEnter()
+	inEditMode = true;
 	if InCombatLockdown() then
-		return;
+		return; -- shown as combat ends, if Edit Mode is still open
 	end
 	Close(); -- typing somewhere: the text stays in the box
 	if not keyboard then
@@ -1501,13 +1502,21 @@ local function EditModeEnter()
 	keyboard.EditModeOverlay:Show();
 end
 
-local function EditModeExit()
-	if previewing then
-		previewing = false;
-		keyboard.EditModeOverlay:Hide();
-		keyboard:Hide();
-		keyboard:SetFrameStrata("FULLSCREEN_DIALOG");
+-- The preview goes - not in combat: the keyboard holds secure buttons, so only Blizzard's UI may hide it
+-- then (finished as combat ends).
+local function EndPreview()
+	if not previewing or InCombatLockdown() then
+		return;
 	end
+	previewing = false;
+	keyboard.EditModeOverlay:Hide();
+	keyboard:Hide();
+	keyboard:SetFrameStrata("FULLSCREEN_DIALOG");
+end
+
+local function EditModeExit()
+	inEditMode = false;
+	EndPreview();
 end
 
 if EventRegistry then
@@ -1599,10 +1608,18 @@ watcher:SetScript("OnEvent", function(_, event, ...)
 		lastInput = "mouse";
 	elseif event == "PLAYER_REGEN_DISABLED" then
 		Close(); -- the text stays in the box
-	elseif keyboard and not keyboard:IsShown() then
-		ClearShortcuts(); -- if combat stopped it as the keyboard closed
-		if registered then
-			Unregister(); -- a hide Blizzard refused as combat started
+		EndPreview(); -- (the moment before combat locks it)
+	else -- PLAYER_REGEN_ENABLED
+		if keyboard and not keyboard:IsShown() then
+			ClearShortcuts(); -- if combat stopped it as the keyboard closed
+			if registered then
+				Unregister(); -- a hide Blizzard refused as combat started
+			end
+		end
+		if not inEditMode then
+			EndPreview(); -- Edit Mode left in combat
+		elseif not previewing then
+			EditModeEnter(); -- Edit Mode still open: the preview back
 		end
 	end
 end);
@@ -1649,9 +1666,11 @@ SlashCmdList.GAMEPADKEYBOARD = function(message)
 		SetOption("autoOpen", message == "on");
 		Print(message == "on" and "opens when a text box gets focus with the controller."
 			or "off - type with a keyboard; /gk on turns it back on.");
-	elseif optionsCategory and not InCombatLockdown() then
-		Settings.OpenToCategory(optionsCategory:GetID());
 	else
-		Print(("%s. /gk on | off, /gk reset puts it back in its usual place and size."):format(Setting("autoOpen") and "On" or "Off"));
+		-- Where the options are, not opening them: opened from here (Settings.OpenToCategory) the panel
+		-- would open as this addon's doing - its open event comes straight back into this call - and what it
+		-- builds then stays the addon's (blocked later, blamed on it).
+		Print(("%s. Options: Game Menu > Options > AddOns > Gamepad Keyboard. /gk on | off, /gk reset puts it back in its usual place and size."):format(
+			Setting("autoOpen") and "On" or "Off"));
 	end
 end;

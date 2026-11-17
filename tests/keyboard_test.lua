@@ -8,7 +8,7 @@ local check = H.check
 
 -- ---- a small game world -------------------------------------------------------------------------------
 local world = { combat = false, printed = {}, party = false, raid = false, instance = false, guild = false }
-W.install({ inCombat = function() return world.combat end })
+W.install({ inCombat = function() return world.combat end, addonFile = "GamepadKeyboard.lua" })
 function InCombatLockdown() return world.combat end
 function print(s) world.printed[#world.printed + 1] = s end
 function strtrim(s) return (tostring(s or ""):gsub("^%s+", ""):gsub("%s+$", "")) end
@@ -309,6 +309,8 @@ for _, k in ipairs({ "PAD1", "PAD3", "PAD4", "PADLSHOULDER", "PADRSHOULDER" }) d
 -- isolation - so no OnShow) and whose OnRefresh / OnDefault it calls isolated. Blizzard's list controls are
 -- off limits: the panel keeps their data as the addon wrote it, and redraws them as it hides, right before
 -- SaveBindings (Blizzard UI only) - the "blocked from an action only available to the Blizzard UI" dialog.
+-- Opening the panel from addon code is off limits too: its open event fires inside the call, so the panel
+-- opens as the addon's doing.
 local optionsPanel = { registered = 0 }
 local function offLimits(name) return function() error(name .. ": list controls taint the Settings panel's hide (SaveBindings)") end end
 Settings = {
@@ -319,7 +321,7 @@ Settings = {
 		return optionsPanel.category
 	end,
 	RegisterAddOnCategory = function(category) optionsPanel.addOnCategory = category end,
-	OpenToCategory = function(id) optionsPanel.opened = id end,
+	OpenToCategory = function() error("OpenToCategory: the panel would open as the addon's doing") end,
 	RegisterVerticalLayoutCategory = offLimits("RegisterVerticalLayoutCategory"),
 	RegisterAddOnSetting = offLimits("RegisterAddOnSetting"),
 	CreateCheckbox = offLimits("CreateCheckbox"),
@@ -1317,6 +1319,30 @@ check(overlay.shown and chatBox:GetText() == "Hi" and preview() == "|", "Edit Mo
 EventRegistry:TriggerEvent("EditMode.Exit")
 chatBox.text = ""; chatBox:ClearFocus(); manager:FrameHidden(chatFrame); poll()
 GamepadKeyboardDB.position = nil
+-- Edit Mode and combat: the keyboard holds secure buttons, so addon code can't hide it or change its layer then.
+local blockedBefore = W.blockedMessages or 0
+EventRegistry:TriggerEvent("EditMode.Enter")
+W.fireEvent("PLAYER_REGEN_DISABLED"); world.combat = true
+check(not kb:IsShown() and kb.strata == "FULLSCREEN_DIALOG", "Edit Mode, combat starts: the preview goes (just before the lockdown)")
+EventRegistry:TriggerEvent("EditMode.Exit")
+world.combat = false; W.fireEvent("PLAYER_REGEN_ENABLED")
+check(not kb:IsShown() and (W.blockedMessages or 0) == blockedBefore, "...Edit Mode left in combat: nothing blocked, no preview after")
+EventRegistry:TriggerEvent("EditMode.Enter")
+W.fireEvent("PLAYER_REGEN_DISABLED"); world.combat = true
+world.combat = false; W.fireEvent("PLAYER_REGEN_ENABLED")
+check(kb:IsShown() and kb.EditModeOverlay.shown and kb.strata == "HIGH", "...Edit Mode still open as combat ends: the preview is back")
+world.combat = true -- (combat without its start seen: a loading screen, say)
+EventRegistry:TriggerEvent("EditMode.Exit")
+check(kb:IsShown() and (W.blockedMessages or 0) == blockedBefore, "...left in combat with the preview up: left alone, nothing blocked")
+world.combat = false; W.fireEvent("PLAYER_REGEN_ENABLED")
+check(not kb:IsShown() and not kb.EditModeOverlay.shown and kb.strata == "FULLSCREEN_DIALOG", "...and put away as combat ends")
+world.combat = true
+EventRegistry:TriggerEvent("EditMode.Enter")
+check(not kb:IsShown() and (W.blockedMessages or 0) == blockedBefore, "Edit Mode opened in combat: no preview yet, nothing blocked")
+world.combat = false; W.fireEvent("PLAYER_REGEN_ENABLED")
+check(kb:IsShown() and kb.EditModeOverlay.shown, "...shown as combat ends")
+EventRegistry:TriggerEvent("EditMode.Exit")
+check(not kb:IsShown(), "...and gone with Edit Mode")
 
 -- ---- the D-pad ---------------------------------------------------------------------------------------------------
 padA(function() nameBox:SetFocus() end)
@@ -1343,15 +1369,20 @@ style = 1
 chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 local secret = W.CreateFrame("EditBox", nil, UIParent); secret.forbidden = true; secret:SetAutoFocus(false)
 padA(function() secret:SetFocus() end)
-check(not kb:IsShown(), "a forbidden box (Blizzard's store and such): doesn't open")
+check(not kb:IsShown(), "a forbidden box (Blizzard's store and such): doesn't open, nothing asked of it but IsForbidden")
 secret:ClearFocus(); poll()
+openChat("SAY"); poll()
+padA(function() secret:SetFocus() end)
+check(not kb:IsShown(), "...moved to from the keyboard: the keyboard steps aside, nothing asked of it")
+secret:ClearFocus(); chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 SlashCmdList.GAMEPADKEYBOARD("off")
 openChat("SAY"); poll()
 check(not kb:IsShown() and S.autoOpen:GetValue() == false, "/gk off: doesn't open (and the options show it off)")
 SlashCmdList.GAMEPADKEYBOARD("on")
 check(S.autoOpen:GetValue() == true, "/gk on: on again")
 SlashCmdList.GAMEPADKEYBOARD("")
-check(optionsPanel.opened == 4242, "/gk: opens its options")
+check(world.printed[#world.printed]:find("Options > AddOns > Gamepad Keyboard", 1, true),
+	"/gk: says where its options are (opening them from an addon command would open the panel as its doing)")
 chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 
 -- ---- combat starting while typing ----------------------------------------------------------------------------------
