@@ -27,7 +27,8 @@ the game's again.
 
 Type the message and press **Enter**: it's sent and the chat closes, as with the Enter key. Whispers and
 replies keep their target, numbered channels work, and a line starting with `/` runs as a command (`/p hi`,
-`/dance`, `/cast`, `/target`). The chat type you sent in sticks for the next line, as it does with Enter.
+`/dance`, `/cast`, `/target`) - a typed `/p` sends to party but doesn't change the chat (the chat key does).
+The chat type you sent in sticks for the next line, as it does with Enter.
 Enter with nothing typed just closes the chat. A chat line starts with Shift on, and stops at what one chat
 line holds. With **Close after Enter** off (Options), Enter sends and the keyboard stays on a fresh line in
 the same chat; B closes it.
@@ -234,8 +235,10 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
 - [ ] Chat (from the menu dial's Chat, or the chat binding): the keyboard opens; A on a key types into its
       line (its preview); the chat box stays empty.
 - [ ] Enter: the message is sent and the chat closes; with nothing typed, the chat just closes.
-- [ ] A whisper reply sent with Enter reaches the right player; `/p hello` goes to party and party is
-      still the chat type next time; `/2 hello` goes to channel 2; `/dance` dances; `/cast` a spell
+- [ ] First: open chat with the keyboard - the chat box empties and its header shows its usual chat (the
+      keyboard's chat key shows the chat the line goes to).
+- [ ] A whisper reply sent with Enter reaches the right player; Party picked with the chat key and sent is
+      still the chat type next time; `/p hello` typed goes to party; `/2 hello` goes to channel 2; `/dance` dances; `/cast` a spell
       casts it.
 - [ ] B: back on the chat box, nothing sent; Chat on the menu dial again brings the keyboard back with the
       line, in its chat.
