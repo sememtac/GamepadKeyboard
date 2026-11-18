@@ -1149,6 +1149,68 @@ unknown:ClearFocus(); poll()
 openChat("SAY"); poll()
 check(kb:IsShown(), "...chat still")
 endChat()
+-- ---- boxes of numbers: the mail's money, the auction house's prices and quantities ---------------------------------
+local function numberBox(name, parent, center)
+	local box = W.CreateFrame("EditBox", name, parent, "InputBoxTemplate")
+	box:SetNumeric(true); box.center = center
+	return box
+end
+local mailMoney = blizzardFrame(W.CreateFrame("Frame", "SendMailMoney", mailFrameReal))
+local gold = blizzardFrame(numberBox("SendMailMoneyGold", mailMoney, { 400, 300 }))
+local silver = blizzardFrame(numberBox("SendMailMoneySilver", mailMoney, { 440, 300 }))
+gold:SetMaxLetters(7)
+gold.scripts.OnTextChanged = function() end -- MoneyInputFrame_OnTextChanged -> SendMailFrame_CanSend
+gold.scripts.OnEnterPressed = function() silver:SetFocus() end -- MoneyFrameEditBoxGold_OnEnterPressed
+manager:FrameShown(mailFrameReal)
+padA(function() gold:SetFocus() end)
+check(kb:IsShown() and key("1") and key("0") and key("BACK") and key("ENTER") and not key("q") and not key("SPACE")
+	and not key("SYMBOLS") and not key("CHAT") and not key("SHIFT") and kb.height == 84 + 2 * 34,
+	"the mail's gold (a box of numbers, looked through): the keyboard opens on its numbers - the number row and Enter")
+type("12"); pad("PAD4"); type("5")
+check(gold:GetText() == "125" and preview() == "125" .. CARET, "...digits go in; Y's space doesn't (the box takes numbers only)")
+pad("PAD3")
+check(gold:GetText() == "12", "...X deletes")
+S.layout:SetValue("dvorak")
+check(key("1") and not key("a"), "...a change of layout leaves the numbers page alone")
+S.layout:SetValue("qwerty")
+playerClick(key("ENTER"))
+check(silver:HasFocus() and kb:IsShown() and key("1") and preview() == CARET, "...Enter: the box's own Enter (on to silver), the keyboard follows, numbers still")
+kb:SmartNavigationCloseHandler(); silver:ClearFocus(); gold.text = ""; manager:FrameHidden(mailFrameReal); poll()
+-- The auction house's sell forms: unnamed boxes, found by where they are.
+AuctionHouseFrame = blizzardFrame(W.CreateFrame("Frame", "AuctionHouseFrame", UIParent))
+local function sellForm(key)
+	local form = W.CreateFrame("Frame", nil, AuctionHouseFrame)
+	form.QuantityInput = W.CreateFrame("Frame", nil, form)
+	form.QuantityInput.InputBox = numberBox(nil, form.QuantityInput, { 400, 600 })
+	form.PriceInput = W.CreateFrame("Frame", nil, form)
+	form.PriceInput.MoneyInputFrame = W.CreateFrame("Frame", nil, form.PriceInput)
+	for _, coin in ipairs({ "GoldBox", "SilverBox", "CopperBox" }) do
+		form.PriceInput.MoneyInputFrame[coin] = numberBox(nil, form.PriceInput.MoneyInputFrame, { 400, 550 })
+	end
+	AuctionHouseFrame[key] = form
+	return form
+end
+local itemSell, stackSell = sellForm("ItemSellFrame"), sellForm("CommoditiesSellFrame")
+local ahSearch = W.CreateFrame("EditBox", nil, AuctionHouseFrame, "InputBoxTemplate"); ahSearch.center = { 400, 700 }
+manager:FrameShown(AuctionHouseFrame)
+for label, box in pairs({ ["an item's price (gold)"] = itemSell.PriceInput.MoneyInputFrame.GoldBox,
+	["an item's price (copper)"] = itemSell.PriceInput.MoneyInputFrame.CopperBox, ["an item's quantity"] = itemSell.QuantityInput.InputBox,
+	["a stack's price (silver)"] = stackSell.PriceInput.MoneyInputFrame.SilverBox, ["a stack's quantity"] = stackSell.QuantityInput.InputBox }) do
+	padA(function() box:SetFocus() end)
+	type("42")
+	check(kb:IsShown() and key("1") and not key("q") and box:GetText() == "42", "auction house, " .. label .. ": the keyboard, on its numbers")
+	kb:SmartNavigationCloseHandler(); box:ClearFocus(); box.text = ""; poll()
+end
+padA(function() ahSearch:SetFocus() end)
+check(not kb:IsShown(), "...but not the auction house's other boxes (its search: Blizzard's, not looked through)")
+ahSearch:ClearFocus(); manager:FrameHidden(AuctionHouseFrame); AuctionHouseFrame = nil; poll()
+-- Another addon's box of numbers: its numbers too; a text box after it: letters again.
+local addonNumbers = numberBox(nil, UIParent, { 400, 500 })
+padA(function() addonNumbers:SetFocus() end)
+check(kb:IsShown() and key("1") and not key("q"), "another addon's box of numbers: the numbers page")
+padA(function() outside:SetFocus() end)
+check(kb:IsShown() and key("q") and key("SPACE"), "...then a text box: letters again")
+kb:SmartNavigationCloseHandler(); outside:ClearFocus(); poll()
 -- A tap only ever clicks the keyboard's own keys.
 openChat("SAY"); poll()
 local clicked = 0

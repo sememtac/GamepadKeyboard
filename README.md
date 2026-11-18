@@ -116,11 +116,14 @@ Whichever you're using has the text box:
 - **A whisper started from a menu** (a name's Whisper, the chat's channels) while the keyboard is up: the
   keyboard's line goes to that person (the chat key shows it), LT / RT between the chat window and the
   keyboard or not.
-- **Which text boxes**: chat, the mail's To: / Subject: / text, and other addons' text boxes. Not the
-  game's other text boxes - the bag search, the Options search, confirmation popups, the Auction House
-  and so on: what an addon types into one runs the game's own code as the addon's doing, and some of
-  that goes on into things only the game's UI may do, so the game blocks the addon (it did for the bag
-  search and the Options search). A real keyboard types there as usual; the first time, it says so.
+- **Which text boxes**: chat, the mail's To: / Subject: / text / money, the Auction House's sell form
+  (quantity and price), and other addons' text boxes. Not the game's other text boxes - the bag search,
+  the Options search, confirmation popups, the Auction House's search and buy forms and so on: what an
+  addon types into one runs the game's own code as the addon's doing, and some of that goes on into
+  things only the game's UI may do, so the game blocks the addon (it did for the bag search and the
+  Options search). A real keyboard types there as usual; the first time, it says so.
+- **Boxes of numbers** (a price, a quantity, the mail's gold / silver / copper) open on a page of just the
+  number row and Enter; letters and Space don't go in.
 - **If the game ever blocks it anyway**, it prints what was blocked and which text box it last typed into -
   worth reporting. A `/reload` clears it.
 - **No names showing** in a box that should have them: type a few letters in it with the keyboard, then
@@ -144,8 +147,10 @@ the controller's); the mouse by `GLOBAL_MOUSE_DOWN`.
 Typing runs the box's own handlers as this addon's doing (tainted): a Blizzard box's can reach calls only
 Blizzard's UI may make (the bag search fires a synchronous inventory event whose listeners reach the
 gamepad action bar's `SetPreferredGamepadInteractTarget`; the Options search keeps its text for the
-panel's close, which then calls `SaveBindings`). So it types only into the mail's three boxes (looked
-through) and boxes another addon made - and into no chat box at all (below). Whose a box is comes from
+panel's close, which then calls `SaveBindings`). So it types only into Blizzard boxes looked through -
+the mail's To:, Subject:, text and money; the Auction House sell forms' quantity and price, whose change
+only redraws the form while Create Auction reads the boxes' numbers itself (`GetNumber`), so the post (a
+call only Blizzard's UI may make) stays Blizzard's - and boxes another addon made - and into no chat box at all (below). Whose a box is comes from
 where it was made: the first named frame from the box up (short of `UIParent`) is Blizzard's if its global
 was set by Blizzard's code (`issecurevariable`), an addon's if not; with no named frame, the file it was
 made in (`GetSourceLocation`: Blizzard's own files, or an addon's); with neither, no keyboard. Not from the
@@ -229,7 +234,7 @@ multiplied by its scale when kept and divided when used - so it stays put at any
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 305 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 318 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, every write into the chat box
 from the addon flagged, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
@@ -263,6 +268,10 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
       other layout, no list opens; the cursor sits sensibly on the row; with the mouse, < and > step it.
       Then, back in the world: the interact icon and RB targeting work, no "blocked" dialog.
 - [ ] Mail: after Send, the keyboard's preview (and the name row) is empty too.
+- [ ] Mail money: A on gold opens the numbers page; Enter moves on to silver, then copper; the mail sends
+      with the money.
+- [ ] Auction House, Sell: quantity and the price's gold / silver / copper open the numbers page; then
+      Create Auction posts it - no "blocked" message (taint log on).
 - [ ] Mail text (several lines): Enter / holding A start a new line; the preview shows "line 2 of 2".
 - [ ] Edit Mode: the keyboard shows with a blue selection, under Edit Mode's panels; dragging moves it, the
       mouse wheel resizes it; after Edit Mode it opens there at that size.

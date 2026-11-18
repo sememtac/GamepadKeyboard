@@ -79,11 +79,15 @@ local PAGES = {
 		{ "<", ">", "[", "]", "{", "}", "^", "`", "'", "," },
 		{ LETTERS, CHAT, SPACE, ENTER },
 	},
+	numbers = { -- a box that takes only numbers (a price, a quantity)
+		NUMBER_ROW,
+		{ ENTER },
+	},
 };
 
 local keyboard;
 local keys = {}; -- page -> rows of key buttons
-local page = "qwerty"; -- a letters page (the layout's) or "symbols"
+local page = "qwerty"; -- a letters page (the layout's), "symbols", or "numbers" (a box of numbers only)
 local target; -- the text box being typed into
 local isChat = false;
 local suggesting = false; -- the box looks names up (a row of name keys above the keys)
@@ -534,6 +538,8 @@ local function Insert(characters)
 		if #(ChatLine(newText, chat) or newText) > MAX_LINE then
 			return; -- (as long as one chat line can be)
 		end
+	elseif target and target:IsNumeric() and characters:find("%D") then
+		return; -- a box of numbers: digits only (Y's space too)
 	else
 		local maxLetters = target and target:GetMaxLetters() or 0;
 		if maxLetters > 0 and Utf8Length(newText) > maxLetters then
@@ -1095,7 +1101,7 @@ local function SetTarget(box)
 		text = box:GetText() or "";
 	end
 	cursor = Utf8Length(text);
-	page = LettersPage();
+	page = box:IsNumeric() and "numbers" or LettersPage();
 	shift = isChat and text == "" and Setting("chatCapital");
 end
 
@@ -1152,9 +1158,38 @@ end
 -- synchronous inventory event whose listeners reach the gamepad action bar's interact target; the Options
 -- search keeps the text for the panel's close, right before it saves key bindings: "blocked from an action
 -- only available to the Blizzard UI", blamed on this addon. So: chat boxes (never typed into: the keyboard
--- keeps the line - in a chat a macro line can say), the mail's boxes (looked through: their handlers only
--- read the text and enable Send), and boxes another addon made. Not knowing whose: none.
-local REVIEWED_BOXES = { SendMailNameEditBox = true, SendMailSubjectEditBox = true, SendMailBodyEditBox = true };
+-- keeps the line - in a chat a macro line can say), Blizzard boxes looked through, and boxes another addon
+-- made. Not knowing whose: none.
+-- Looked through: the mail's To:, Subject:, text and money (their handlers only read the text, show or hide
+-- the money boxes and enable Send; Enter in the money moves to the next box).
+local REVIEWED_BOXES = {
+	SendMailNameEditBox = true, SendMailSubjectEditBox = true, SendMailBodyEditBox = true,
+	SendMailMoneyGold = true, SendMailMoneySilver = true, SendMailMoneyCopper = true,
+};
+
+-- ...and the auction house's sell forms (an item, or a stack): their quantity and price boxes, which have no
+-- names. The quantity's handler acts only on typing on a real keyboard; a price change redraws the form
+-- (deposit, total, the Create Auction button; its undercut hint never shows in the controller UI); Enter
+-- only drops focus. Create Auction reads the boxes' numbers itself (GetNumber), so the post - a call only
+-- Blizzard's UI may make - stays Blizzard's. Not the buy forms.
+local function IsAuctionSellBox(box)
+	local auctionHouse = AuctionHouseFrame;
+	if not auctionHouse then
+		return false;
+	end
+	for _, sellFrame in ipairs({ auctionHouse.ItemSellFrame, auctionHouse.CommoditiesSellFrame }) do
+		if sellFrame.QuantityInput and box == sellFrame.QuantityInput.InputBox then
+			return true;
+		end
+		for _, priceInput in ipairs({ sellFrame.PriceInput, sellFrame.SecondaryPriceInput }) do
+			local money = priceInput and priceInput.MoneyInputFrame;
+			if money and (box == money.GoldBox or box == money.SilverBox or box == money.CopperBox) then
+				return true;
+			end
+		end
+	end
+	return false;
+end
 
 -- Whose a text box is - not from its handlers: a value this addon reads comes back as its own, so
 -- issecurevalue never says Blizzard's (in the game every box passed that, the bag search too). From where it
@@ -1184,7 +1219,7 @@ local function CanType(box)
 	if box.chatFrame then
 		return Sayable(ChatFor(box));
 	end
-	if REVIEWED_BOXES[box:GetName() or ""] then
+	if REVIEWED_BOXES[box:GetName() or ""] or IsAuctionSellBox(box) then
 		return true;
 	end
 	return MadeByBlizzard(box) == false;
@@ -1327,7 +1362,7 @@ end
 
 -- A change of layout shows at once if the keyboard is up on its letters.
 local function ApplyLayout()
-	if keyboard and keyboard:IsShown() and page ~= "symbols" and not InCombatLockdown() then
+	if keyboard and keyboard:IsShown() and page ~= "symbols" and page ~= "numbers" and not InCombatLockdown() then
 		page = LettersPage();
 		Layout();
 		UpdateLabels();
