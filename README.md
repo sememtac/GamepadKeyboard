@@ -39,6 +39,12 @@ Edit Mode - waits, in its chat, for the next time the keyboard opens on chat (a 
 takes it); deleted with X, it leaves nothing. A link (shift-click on an item) while the keyboard is up goes
 into its line.
 
+A line already in the chat box - a link Blizzard put there (a shift-click with the chat box open, or a
+window's "link in chat" opening chat with one), or what a real keyboard typed - is the chat box's: the
+keyboard can't move it. While the keyboard's own line is empty, the preview shows it ("in the chat box:
+Enter, then A sends it"), the chat key switches its chat too (and its header), and Enter takes you back
+to the chat box, where the chat's own A sends it. Typing starts the keyboard's own line instead.
+
 The **chat key** (bottom row, beside Space) shows who you're talking to - Say, Party, To Bob, /2 - and
 steps on to the next chat type there is to use: Say, Party (in a group), Raid (in a raid), Instance (in an
 instance group), Guild (in a guild), the whisper the chat was in (opened from a name, or started while the
@@ -234,7 +240,7 @@ multiplied by its scale when kept and divided when used - so it stays put at any
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 321 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 328 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, every write into the chat box
 from the addon flagged, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
@@ -293,6 +299,8 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
 - [ ] Combat starting while typing: the keyboard closes without an "Interface action failed" or "blocked"
       message, and the line is back the next time it opens on chat.
 - [ ] Shift-click an item while the keyboard is up over chat: the link goes into the line and is sent with it.
+- [ ] A link already in the chat box when the keyboard comes up: the preview shows it; the chat key switches
+      the chat box's header too (Say -> Guild); Enter, then A, sends it to that chat.
 - [ ] A Battle.net whisper (friends list): the keyboard doesn't open, a note says why.
 - [ ] A on the bag search box, the Options search, a confirmation popup's box: no keyboard (a note the first
       time); closing the bags afterwards, no "blocked" message. Gesture Commands' name box still opens it.

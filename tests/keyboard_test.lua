@@ -195,8 +195,8 @@ function chatBox:UpdateHeader() self.header = self.attrs.chatType .. ":" .. tost
 -- later, and on into the controller's bindings (blocked). Reads, and the sticky chat type (an attribute,
 -- which comes back clean), only. Each write from GamepadKeyboard.lua is noted with its line.
 local chatWrites = {}
-for _, name in ipairs({ "SetText", "Insert", "SetTellTarget", "SetChatType", "UpdateHeader", "SetFocus", "ClearFocus",
-	"SetCursorPosition", "HighlightText" }) do
+for _, name in ipairs({ "SetText", "Insert", "SetTellTarget", "SetChatType", "SetFocus", "ClearFocus",
+	"SetCursorPosition", "HighlightText" }) do -- (UpdateHeader may: it only redraws the header)
 	local own = rawget(chatBox, name)
 	chatBox[name] = function(self, ...)
 		local caller = debug.getinfo(2, "Sl")
@@ -1066,6 +1066,38 @@ check(not kb:IsShown(), "...the chat window closed: the keyboard goes")
 chatFrame:Show(); classicChat = false; chatBox:Show()
 endChat()
 
+-- ---- a line already in the chat box (a link Blizzard put there): shown, steered, handed back ------------------------
+world.party = true
+chatBox.text = "[Sword]" -- (ChatFrameUtil.OpenChat(link): chat opened with the link in it)
+openChat("SAY"); poll()
+check(kb:IsShown() and preview():find("^%[Sword%]") and preview():find("Enter, then A sends it", 1, true) and key("CHAT").text == "Say",
+	"the chat box already holds a line (a link): the preview shows it, and how it's sent")
+playerClick(key("CHAT"))
+check(key("CHAT").text == "Party" and chatBox.attrs.chatType == "PARTY" and chatBox.header == "PARTY:nil" and chatBox:GetText() == "[Sword]",
+	"...the chat key steers the chat box's own line: its chat and its header (the text untouched)")
+before = #macros
+local notes = #world.printed
+playerClick(key("ENTER"))
+check(#macros == before and not kb:IsShown() and manager.focusedFrame == chatFrame and chatBox:HasFocus() and chatBox:GetText() == "[Sword]"
+	and world.printed[#world.printed]:find("A sends it", 1, true) and #world.printed == notes + 1,
+	"...Enter: back on the chat box with its line, in Party, for the chat's own A (said the first time)")
+chatBox:ClearFocus(); manager:FrameHidden(chatFrame); poll()
+openChat("SAY"); poll()
+notes = #world.printed
+playerClick(key("ENTER"))
+check(not kb:IsShown() and chatBox:HasFocus() and #world.printed == notes, "...and again: back to the chat box (said once, not every time)")
+chatBox:ClearFocus(); manager:FrameHidden(chatFrame); poll()
+openChat("SAY"); poll()
+chatBox.text = chatBox.text .. " [Shield]"; poll()
+check(preview():find("^%[Sword%] %[Shield%]"), "...another link put in the chat box meanwhile: the preview follows")
+type("hi")
+check(preview() == "Hi" .. CARET and chatBox:GetText() == "[Sword] [Shield]", "...typing starts the keyboard's own line (the chat box keeps its own)")
+playerClick(key("ENTER"))
+check(macros[#macros] == "/s Hi", "...which Enter sends itself")
+poll()
+chatBox.text = ""; chatBox.attrs.chatType = "SAY"; chatBox:ClearFocus(); manager:FrameHidden(chatFrame); poll()
+world.party = false
+
 -- ---- Blizzard's Settings panel: not for the keyboard ---------------------------------------------------------------
 SettingsPanel = blizzardFrame(W.CreateFrame("Frame", "SettingsPanel", UIParent))
 local settingsSearch = W.CreateFrame("EditBox", nil, SettingsPanel, "InputBoxTemplate") -- (its own source: an addon's, say)
@@ -1386,8 +1418,8 @@ check(chatBox:GetText() == "Hi" and not kb:IsShown(), "...and the real keyboard 
 poll(); poll()
 check(not kb:IsShown(), "...and it stays closed")
 menuDialChat(); poll()
-check(kb:IsShown() and preview() == CARET and chatBox:GetText() == "Hi",
-	"Chat on the menu dial then: the on-screen keyboard comes, with its own line (the real keyboard's stays in the box)")
+check(kb:IsShown() and preview():find("^Hi") and preview():find("A sends it", 1, true) and chatBox:GetText() == "Hi",
+	"Chat on the menu dial then: the on-screen keyboard comes, showing the chat box's line (the real keyboard's, sent from there)")
 endChat()
 keyboardKey("R")
 check(chatBox:HasFocus() and not kb:IsShown(), "the real keyboard's reply key: no on-screen keyboard either")

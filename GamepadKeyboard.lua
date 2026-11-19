@@ -102,6 +102,8 @@ local suggestions = {}; -- the name keys
 -- controller's bindings: blocked, blamed on the addon. The chat box is only read.
 local chat = {}; -- the chat the line goes to: { chatType, tellTarget, channelTarget }
 local seenChat; -- the chat box's own chat type last frame (to see a whisper started elsewhere)
+local seenBoxText; -- the chat box's own text last frame (a line Blizzard put there: the preview follows)
+local toldBoxLine = false; -- said once: a line in the chat box is sent from there
 local chatDraft; -- a chat line closed unsent: { text, chat } - back the next time the keyboard opens on chat
 local whisperedTo; -- the whisper this chat was in while the keyboard was up: { chatType, target }
 local lastNamesBox; -- the last box typed into that isn't chat (for /gk names)
@@ -458,7 +460,29 @@ local function UpdateChatKey()
 	end
 end
 
+-- The chat box's own line, while the keyboard's is empty: one Blizzard put there (a link - shift-click with
+-- the chat box open, or a window's "link in chat" opening it with one). The keyboard can't move it (writing
+-- in the chat box would leave it the addon's doing), so it shows it, steers its chat, and hands it back for
+-- the chat's own A to send. Typing starts the keyboard's own line instead.
+local BOX_LINE_HINT = "|cff808080   in the chat box: Enter, then A sends it|r";
+
+local function BoxLine()
+	if isChat and target and text == "" then
+		local boxText = target:GetText() or "";
+		if boxText ~= "" then
+			return boxText;
+		end
+	end
+end
+
 local function UpdatePreview()
+	local boxLine = BoxLine();
+	if boxLine then
+		keyboard.Preview:SetText(boxLine .. BOX_LINE_HINT);
+		UpdateChatKey();
+		UpdateSuggestions();
+		return;
+	end
 	local before, after = Split(text, cursor);
 	local lineBefore, lineAfter = before:match("[^\n]*$"), after:match("^[^\n]*");
 	local column, length = Utf8Length(lineBefore), Utf8Length(lineBefore) + Utf8Length(lineAfter);
@@ -630,6 +654,14 @@ local function NextChatType()
 	end
 	local nextType = list[current % #list + 1];
 	chat = { chatType = nextType.chatType, tellTarget = nextType.target };
+	if (target:GetText() or "") ~= "" then
+		-- The chat box's own line goes there too: its chat (attributes - what its send reads, and they come
+		-- back clean) and its header (Blizzard's, which only redraws).
+		target:SetAttribute("chatType", chat.chatType);
+		target:SetAttribute("tellTarget", chat.tellTarget);
+		target:SetAttribute("channelTarget", nil);
+		target:UpdateHeader();
+	end
 	UpdatePreview();
 end
 
@@ -704,6 +736,14 @@ local function EnterPostClick(button)
 		return;
 	end
 	if overChat then
+		if sentLine == "" and text == "" and (box:GetText() or "") ~= "" then
+			Close(); -- back on the chat box, its line still in it, in the chat the chat key picked
+			if not toldBoxLine then
+				toldBoxLine = true;
+				Print("the line is in the chat box: A sends it.");
+			end
+			return;
+		end
 		if sentLine == "" and text ~= "" then
 			Print(("too long to send to %s - a chat line is at most %d letters with its command."):format(ChatLabel(), MAX_LINE));
 			return;
@@ -1657,6 +1697,11 @@ watcher:SetScript("OnUpdate", function()
 	end
 	if keyboard and keyboard:IsShown() and isChat and target then
 		UpdateChatKey();
+		local boxText = target:GetText() or "";
+		if boxText ~= seenBoxText then
+			seenBoxText = boxText;
+			UpdatePreview(); -- (a link put in the chat box's own line)
+		end
 		-- The chat box has no typing focus while the controller is on the keyboard. Getting it back from a real
 		-- keyboard (Enter, /) or the mouse: this keyboard steps aside, its line waits. From the controller (LT
 		-- to the chat window): it stays.

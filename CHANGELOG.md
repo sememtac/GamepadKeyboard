@@ -6,6 +6,9 @@
   Del 0 Enter). Letters and Space don't go in.
 - The mail's money (gold, silver, copper) and the Auction House's sell form (quantity and price) work with
   the keyboard. Enter in the mail's gold moves on to silver, then copper, and the keyboard follows.
+- A link already in the chat box (shift-clicked with the chat box open, or put there by a "link in chat")
+  shows in the keyboard's preview. The chat key switches its chat too - Say, Guild, Party... - and Enter
+  takes you back to the chat box, where A sends it.
 
 ## 1.0.0
 
