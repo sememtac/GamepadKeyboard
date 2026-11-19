@@ -1164,8 +1164,17 @@ gold.scripts.OnEnterPressed = function() silver:SetFocus() end -- MoneyFrameEdit
 manager:FrameShown(mailFrameReal)
 padA(function() gold:SetFocus() end)
 check(kb:IsShown() and key("1") and key("0") and key("BACK") and key("ENTER") and not key("q") and not key("SPACE")
-	and not key("SYMBOLS") and not key("CHAT") and not key("SHIFT") and kb.height == 84 + 2 * 34,
-	"the mail's gold (a box of numbers, looked through): the keyboard opens on its numbers - the number row and Enter")
+	and not key("SYMBOLS") and not key("CHAT") and not key("SHIFT") and kb.height == 84 + 4 * 34,
+	"the mail's gold (a box of numbers, looked through): the keyboard opens on a numpad, four rows")
+local function rowY(k) return key(k).point[3] end
+local function colX(k) return key(k).point[2] end
+check(rowY("7") == rowY("9") and rowY("4") == rowY("6") and rowY("1") == rowY("3") and rowY("BACK") == rowY("0") and rowY("0") == rowY("ENTER")
+	and rowY("7") > rowY("4") and rowY("4") > rowY("1") and rowY("1") > rowY("0"), "...7 8 9 / 4 5 6 / 1 2 3 / Del 0 Enter, top to bottom")
+check(colX("7") == colX("4") and colX("4") == colX("1") and colX("1") == colX("BACK") and colX("8") == colX("0") and colX("9") == colX("ENTER")
+	and key("BACK").width == key("5").width and key("ENTER").width == key("5").width and key("5").width == 2 * 36 + 4,
+	"...a grid: every key the same width (two letter keys), in columns")
+check(jump("5", "up") == key("8") and jump("5", "down") == key("2") and jump("2", "down") == key("0") and jump("0", "left") == key("BACK")
+	and jump("ENTER", "right") == key("BACK") and jump("8", "up") == key("0"), "...the D-pad moves round the grid (wrapping at the edges)")
 type("12"); pad("PAD4"); type("5")
 check(gold:GetText() == "125" and preview() == "125" .. CARET, "...digits go in; Y's space doesn't (the box takes numbers only)")
 pad("PAD3")

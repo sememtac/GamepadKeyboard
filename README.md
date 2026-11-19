@@ -122,8 +122,8 @@ Whichever you're using has the text box:
   addon types into one runs the game's own code as the addon's doing, and some of that goes on into
   things only the game's UI may do, so the game blocks the addon (it did for the bag search and the
   Options search). A real keyboard types there as usual; the first time, it says so.
-- **Boxes of numbers** (a price, a quantity, the mail's gold / silver / copper) open on a page of just the
-  number row and Enter; letters and Space don't go in.
+- **Boxes of numbers** (a price, a quantity, the mail's gold / silver / copper) open on a numpad - 7 8 9 /
+  4 5 6 / 1 2 3 / Del 0 Enter, every key the same size; letters and Space don't go in.
 - **If the game ever blocks it anyway**, it prints what was blocked and which text box it last typed into -
   worth reporting. A `/reload` clears it.
 - **No names showing** in a box that should have them: type a few letters in it with the keyboard, then
@@ -234,7 +234,7 @@ multiplied by its scale when kept and divided when used - so it stays put at any
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 318 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 321 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, every write into the chat box
 from the addon flagged, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
@@ -268,9 +268,9 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
       other layout, no list opens; the cursor sits sensibly on the row; with the mouse, < and > step it.
       Then, back in the world: the interact icon and RB targeting work, no "blocked" dialog.
 - [ ] Mail: after Send, the keyboard's preview (and the name row) is empty too.
-- [ ] Mail money: A on gold opens the numbers page; Enter moves on to silver, then copper; the mail sends
+- [ ] Mail money: A on gold opens the numpad; Enter moves on to silver, then copper; the mail sends
       with the money.
-- [ ] Auction House, Sell: quantity and the price's gold / silver / copper open the numbers page; then
+- [ ] Auction House, Sell: quantity and the price's gold / silver / copper open the numpad; then
       Create Auction posts it - no "blocked" message (taint log on).
 - [ ] Mail text (several lines): Enter / holding A start a new line; the preview shows "line 2 of 2".
 - [ ] Edit Mode: the keyboard shows with a blue selection, under Edit Mode's panels; dragging moves it, the

@@ -2,8 +2,8 @@
 
 ## 1.1.0
 
-- Boxes of numbers - a price, a quantity, an amount of gold - open on a page of just the number row and
-  Enter. Letters and Space don't go in.
+- Boxes of numbers - a price, a quantity, an amount of gold - open on a numpad (7 8 9 / 4 5 6 / 1 2 3 /
+  Del 0 Enter). Letters and Space don't go in.
 - The mail's money (gold, silver, copper) and the Auction House's sell form (quantity and price) work with
   the keyboard. Enter in the mail's gold moves on to silver, then copper, and the keyboard follows.
 

@@ -79,11 +79,15 @@ local PAGES = {
 		{ "<", ">", "[", "]", "{", "}", "^", "`", "'", "," },
 		{ LETTERS, CHAT, SPACE, ENTER },
 	},
-	numbers = { -- a box that takes only numbers (a price, a quantity)
-		NUMBER_ROW,
-		{ ENTER },
+	numbers = { -- a box that takes only numbers (a price, a quantity): a numpad
+		{ "7", "8", "9" },
+		{ "4", "5", "6" },
+		{ "1", "2", "3" },
+		{ BACK, "0", ENTER },
 	},
 };
+-- A page whose keys are all one width (in keys): the numpad's grid.
+local PAGE_KEY_UNITS = { numbers = 2 };
 
 local keyboard;
 local keys = {}; -- page -> rows of key buttons
@@ -809,9 +813,9 @@ end
 local SHORTCUT_KEYS = { [BACK] = "GamepadKeyboardDelKey", [SPACE] = "GamepadKeyboardSpaceKey" };
 local named = {};
 
-local function CreateKey(key)
+local function CreateKey(key, pageUnits)
 	local special = SPECIAL_KEYS[key];
-	local units = special and special.units or 1;
+	local units = pageUnits or special and special.units or 1;
 	local name = SHORTCUT_KEYS[key];
 	if named[key] then
 		name = nil;
@@ -960,7 +964,7 @@ local function CreateKeyboard()
 		for r, rowKeys in ipairs(layout) do
 			local row = {};
 			for c, key in ipairs(rowKeys) do
-				row[c] = CreateKey(key);
+				row[c] = CreateKey(key, PAGE_KEY_UNITS[name]);
 				if key == SHIFT then
 					table.insert(keyboard.ShiftKeys, row[c]);
 				elseif key == CHAT then
