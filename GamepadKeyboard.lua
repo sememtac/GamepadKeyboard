@@ -709,6 +709,25 @@ end
 -------------------------------------------------------------------------------
 
 -- Before the secure macro action runs: the line to send (out of combat - the keyboard is closed in combat).
+-- The auction house's search box: typing there only redraws the box (its search icon, clear button, hint).
+-- Its own Enter isn't run from here - it keeps the filters in a table shared with the results, which lead
+-- to buying, a call only Blizzard's UI may make. Enter presses its Search button instead.
+local function AuctionSearchButton(box)
+	local searchBar = AuctionHouseFrame and AuctionHouseFrame.SearchBar;
+	if searchBar and box == searchBar.SearchBox then
+		return searchBar.SearchButton;
+	end
+end
+
+-- What a press of a secure button (the Enter keys, A) does: a macro line (a chat line), or a press of a
+-- Blizzard button (the auction house's Search). Blizzard's secure action runs either, so it's Blizzard's
+-- doing; nothing (an empty macro) for anything else.
+local function SetPressAction(button, line, clickButton)
+	button:SetAttribute("type", clickButton and "click" or "macro");
+	button:SetAttribute("clickbutton", clickButton);
+	button:SetAttribute("macrotext", line or "");
+end
+
 local function EnterPreClick(button)
 	if InCombatLockdown() then
 		return; -- closed in combat (its line was emptied after the last press)
@@ -720,7 +739,7 @@ local function EnterPreClick(button)
 			line = nil; -- (the chat key moved it to a longer whisper)
 		end
 	end
-	button:SetAttribute("macrotext", line or "");
+	SetPressAction(button, line, target and not isChat and AuctionSearchButton(target));
 end
 
 -- After it: chat closes like after Enter (the chat type sticks, as Enter makes it - an attribute, which comes
@@ -730,9 +749,18 @@ local function EnterPostClick(button)
 		return;
 	end
 	local sentLine = button:GetAttribute("macrotext") or "";
-	button:SetAttribute("macrotext", ""); -- nothing for a later press to send again
+	local searched = button:GetAttribute("clickbutton") and true or false;
+	SetPressAction(button); -- nothing for a later press to send again
 	local box, overChat = target, isChat;
 	if not box then
+		return;
+	end
+	if searched then
+		-- The search ran (its button, pressed securely); as its own Enter does, the box lets go of typing.
+		if Setting("closeOnEnter") then
+			Close();
+			box:ClearFocus();
+		end
 		return;
 	end
 	if overChat then
@@ -811,8 +839,7 @@ local function APreClick(button, _, down)
 		return;
 	end
 	if down then
-		aDownAt = GetTime();
-		button:SetAttribute("macrotext", "");
+		aDownAt = GetTime(); -- (it acts on the release, set then)
 		HoldRing(true);
 		return;
 	end
@@ -831,7 +858,7 @@ local function APreClick(button, _, down)
 	if button.action == "enter" then
 		EnterPreClick(button);
 	else
-		button:SetAttribute("macrotext", "");
+		SetPressAction(button);
 	end
 end
 
@@ -1211,12 +1238,15 @@ local REVIEWED_BOXES = {
 	SendMailMoneyGold = true, SendMailMoneySilver = true, SendMailMoneyCopper = true,
 };
 
--- ...and the auction house's sell forms (an item, or a stack): their quantity and price boxes, which have no
--- names. The quantity's handler acts only on typing on a real keyboard; a price change redraws the form
--- (deposit, total, the Create Auction button; its undercut hint never shows in the controller UI); Enter
--- only drops focus. Create Auction reads the boxes' numbers itself (GetNumber), so the post - a call only
--- Blizzard's UI may make - stays Blizzard's. Not the buy forms.
-local function IsAuctionSellBox(box)
+-- ...and the auction house's search (see AuctionSearchButton) and sell forms (an item, or a stack): their
+-- quantity and price boxes, which have no names. The quantity's handler acts only on typing on a real
+-- keyboard; a price change redraws the form (deposit, total, the Create Auction button; its undercut hint
+-- never shows in the controller UI); Enter only drops focus. Create Auction reads the boxes' numbers itself
+-- (GetNumber), so the post - a call only Blizzard's UI may make - stays Blizzard's. Not the buy forms.
+local function IsAuctionBox(box)
+	if AuctionSearchButton(box) then
+		return true;
+	end
 	local auctionHouse = AuctionHouseFrame;
 	if not auctionHouse then
 		return false;
@@ -1263,7 +1293,7 @@ local function CanType(box)
 	if box.chatFrame then
 		return Sayable(ChatFor(box));
 	end
-	if REVIEWED_BOXES[box:GetName() or ""] or IsAuctionSellBox(box) then
+	if REVIEWED_BOXES[box:GetName() or ""] or IsAuctionBox(box) then
 		return true;
 	end
 	return MadeByBlizzard(box) == false;

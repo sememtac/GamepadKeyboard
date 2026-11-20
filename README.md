@@ -122,9 +122,10 @@ Whichever you're using has the text box:
 - **A whisper started from a menu** (a name's Whisper, the chat's channels) while the keyboard is up: the
   keyboard's line goes to that person (the chat key shows it), LT / RT between the chat window and the
   keyboard or not.
-- **Which text boxes**: chat, the mail's To: / Subject: / text / money, the Auction House's sell form
-  (quantity and price), and other addons' text boxes. Not the game's other text boxes - the bag search,
-  the Options search, confirmation popups, the Auction House's search and buy forms and so on: what an
+- **Which text boxes**: chat, the mail's To: / Subject: / text / money, the Auction House's search (Enter
+  presses its Search button) and sell form (quantity and price), and other addons' text boxes. Not the
+  game's other text boxes - the bag search, the Options search, confirmation popups, the Auction House's
+  buy forms and so on: what an
   addon types into one runs the game's own code as the addon's doing, and some of that goes on into
   things only the game's UI may do, so the game blocks the addon (it did for the bag search and the
   Options search). A real keyboard types there as usual; the first time, it says so.
@@ -154,7 +155,10 @@ Typing runs the box's own handlers as this addon's doing (tainted): a Blizzard b
 Blizzard's UI may make (the bag search fires a synchronous inventory event whose listeners reach the
 gamepad action bar's `SetPreferredGamepadInteractTarget`; the Options search keeps its text for the
 panel's close, which then calls `SaveBindings`). So it types only into Blizzard boxes looked through -
-the mail's To:, Subject:, text and money; the Auction House sell forms' quantity and price, whose change
+the mail's To:, Subject:, text and money; the Auction House's search, whose typing only redraws the box
+(Enter doesn't run the box's own Enter - it keeps the filters in a table shared with the results, which
+lead to buying - but presses its Search button through the Enter key's secure action, `type = "click"`,
+so the search is Blizzard's); the Auction House sell forms' quantity and price, whose change
 only redraws the form while Create Auction reads the boxes' numbers itself (`GetNumber`), so the post (a
 call only Blizzard's UI may make) stays Blizzard's - and boxes another addon made - and into no chat box at all (below). Whose a box is comes from
 where it was made: the first named frame from the box up (short of `UIParent`) is Blizzard's if its global
@@ -240,7 +244,7 @@ multiplied by its scale when kept and divided when used - so it stays put at any
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 328 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 336 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, every write into the chat box
 from the addon flagged, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
@@ -276,6 +280,8 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
 - [ ] Mail: after Send, the keyboard's preview (and the name row) is empty too.
 - [ ] Mail money: A on gold opens the numpad; Enter moves on to silver, then copper; the mail sends
       with the money.
+- [ ] Auction House, Buy: the search box opens the keyboard; Enter (or holding A) searches; buying from the
+      results works - no "blocked" message.
 - [ ] Auction House, Sell: quantity and the price's gold / silver / copper open the numpad; then
       Create Auction posts it - no "blocked" message (taint log on).
 - [ ] Mail text (several lines): Enter / holding A start a new line; the preview shows "line 2 of 2".

@@ -1,5 +1,10 @@
 # Gamepad Keyboard
 
+## 1.2.0
+
+- The Auction House's search box works with the keyboard. Enter (or holding A) presses its Search button,
+  the same as pressing it yourself.
+
 ## 1.1.0
 
 - Boxes of numbers - a price, a quantity, an amount of gold - open on a numpad (7 8 9 / 4 5 6 / 1 2 3 /

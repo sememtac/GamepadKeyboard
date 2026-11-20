@@ -247,6 +247,8 @@ local function secureClick(button, down)
 	if button.scripts.PreClick then button.scripts.PreClick(button, "LeftButton", down) end
 	if down == (button.attrs.useOnKeyDown == true) and button.attrs.type == "macro" and button.attrs.macrotext ~= "" then
 		macros[#macros + 1] = button.attrs.macrotext -- C_Macro.RunMacroText, securely
+	elseif down == (button.attrs.useOnKeyDown == true) and button.attrs.type == "click" and button.attrs.clickbutton then
+		W.inSecure = true; button.attrs.clickbutton:Click(); W.inSecure = false -- SECURE_ACTIONS.click: delegate:Click(), securely
 	end
 	if button.scripts.PostClick then button.scripts.PostClick(button, "LeftButton", down) end
 end
@@ -1232,7 +1234,7 @@ local function sellForm(key)
 	return form
 end
 local itemSell, stackSell = sellForm("ItemSellFrame"), sellForm("CommoditiesSellFrame")
-local ahSearch = W.CreateFrame("EditBox", nil, AuctionHouseFrame, "InputBoxTemplate"); ahSearch.center = { 400, 700 }
+local buyQuantity = numberBox(nil, AuctionHouseFrame, { 400, 700 }) -- (the commodities buy form's)
 manager:FrameShown(AuctionHouseFrame)
 for label, box in pairs({ ["an item's price (gold)"] = itemSell.PriceInput.MoneyInputFrame.GoldBox,
 	["an item's price (copper)"] = itemSell.PriceInput.MoneyInputFrame.CopperBox, ["an item's quantity"] = itemSell.QuantityInput.InputBox,
@@ -1242,9 +1244,46 @@ for label, box in pairs({ ["an item's price (gold)"] = itemSell.PriceInput.Money
 	check(kb:IsShown() and key("1") and not key("q") and box:GetText() == "42", "auction house, " .. label .. ": the keyboard, on its numbers")
 	kb:SmartNavigationCloseHandler(); box:ClearFocus(); box.text = ""; poll()
 end
+padA(function() buyQuantity:SetFocus() end)
+check(not kb:IsShown(), "...but not the auction house's other boxes (the buy form's quantity: not looked through)")
+buyQuantity:ClearFocus(); poll()
+-- Its search: typed in; Enter presses Search (securely), never the box's own Enter.
+AuctionHouseFrame.SearchBar = W.CreateFrame("Frame", nil, AuctionHouseFrame)
+local ahSearch = W.CreateFrame("EditBox", nil, AuctionHouseFrame.SearchBar, "InputBoxTemplate"); ahSearch.center = { 400, 750 }
+AuctionHouseFrame.SearchBar.SearchBox = ahSearch
+local searchButton = W.CreateFrame("Button", nil, AuctionHouseFrame.SearchBar)
+AuctionHouseFrame.SearchBar.SearchButton = searchButton
+local searches = {}
+searchButton.scripts.OnClick = function() searches[#searches + 1] = { text = ahSearch:GetText(), secure = W.inSecure } end
+local boxEnter = 0
+ahSearch.scripts.OnEnterPressed = function() boxEnter = boxEnter + 1 end -- (StartSearch: the shared filters, then the query)
 padA(function() ahSearch:SetFocus() end)
-check(not kb:IsShown(), "...but not the auction house's other boxes (its search: Blizzard's, not looked through)")
-ahSearch:ClearFocus(); manager:FrameHidden(AuctionHouseFrame); AuctionHouseFrame = nil; poll()
+check(kb:IsShown() and key("q") and key("SPACE"), "the auction house's search box: the keyboard, letters")
+type("linen")
+before = #macros
+playerClick(key("ENTER"))
+check(#searches == 1 and searches[1].text == "linen" and searches[1].secure and boxEnter == 0 and #macros == before,
+	"...Enter presses its Search button, securely (Blizzard's search) - not the box's own Enter, no macro")
+check(not kb:IsShown() and not ahSearch:HasFocus() and key("ENTER").attrs.type == "macro" and key("ENTER").attrs.clickbutton == nil,
+	"...the keyboard closes, the box lets go of typing, and the Enter key is a macro button again")
+padA(function() ahSearch:SetFocus() end)
+type("cloth")
+navCurrent = key("c"); pressA(0.6)
+check(#searches == 2 and searches[2].text == "linencloth" and searches[2].secure and boxEnter == 0 and GamepadKeyboardAButton.attrs.type == "macro",
+	"...holding A searches the same way (and A is a macro button again after)")
+pressA()
+check(#searches == 2, "...a later A press doesn't search again")
+ahSearch:ClearFocus(); ahSearch.text = ""; manager:FrameHidden(AuctionHouseFrame); AuctionHouseFrame = nil; poll()
+openChat("SAY"); poll()
+GamepadKeyboardAButton.attrs.type, GamepadKeyboardAButton.attrs.clickbutton = "click", searchButton -- (a press cut short: combat)
+secureClick(GamepadKeyboardAButton, false); poll() -- a release whose press went elsewhere
+check(#searches == 2, "...A left set to press Search: a release without its press doesn't search")
+GamepadKeyboardAButton.attrs.type, GamepadKeyboardAButton.attrs.clickbutton = "click", searchButton
+type("ok")
+check(#searches == 2 and preview() == "Ok" .. CARET, "...A left set to press Search (a press cut short): a tap still just types")
+playerClick(key("ENTER"))
+check(macros[#macros] == "/s Ok" and #searches == 2, "...and Enter in chat still sends its line")
+poll()
 -- Another addon's box of numbers: its numbers too; a text box after it: letters again.
 local addonNumbers = numberBox(nil, UIParent, { 400, 500 })
 padA(function() addonNumbers:SetFocus() end)
