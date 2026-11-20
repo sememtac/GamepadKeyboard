@@ -11,8 +11,8 @@
   transmogrifier, Professions (and its crafting orders) and the AddOns list; Who; the Guild and Community
   Finder; a crafting order's recipient and tip; a currency transfer's amount; the alarm's message; a guild
   charter's name; the Black Market's bid; an Auction House item's bid. Where the game's own Enter would
-  get the addon blocked (Who, the Finders, crafting orders, the guild charter, the Black Market), Enter
-  presses the window's button instead, as you would.
+  get the addon blocked (Who, the Finders, crafting orders' search, the guild charter), Enter presses the
+  window's button instead - Search, Purchase - as you would.
 - The Auction House's buy quantity (a stack) says why it doesn't open, and what to do instead: A on a row
   of the price list buys up to it.
 

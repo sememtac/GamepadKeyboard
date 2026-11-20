@@ -129,8 +129,8 @@ Whichever you're using has the text box:
   transmogrifier, Professions and the AddOns list; Who; the Guild and Community Finder; crafting orders
   (search, recipient, tip); a currency transfer's amount; the alarm's message; a guild charter's name; the
   Black Market's bid; and other addons' text boxes. In Who, the Finders, crafting orders' search, the
-  guild charter, the Black Market and the Auction House's search, Enter (or holding A) presses the
-  window's button - Search, Purchase, Bid - as you would. Not the game's other text boxes - the bag and
+  guild charter and the Auction House's search, Enter (or holding A) presses the window's button -
+  Search, Purchase - as you would. Not the game's other text boxes - the bag and
   bank searches, the Options search, the spellbook and talent searches, confirmation popups, the Auction
   House's buy quantity, trade money and so on: what an addon types into one runs the game's own code as
   the addon's doing, and some of that goes on into things only the game's UI may do, so the game blocks
@@ -169,7 +169,8 @@ Create Auction, Bid, a currency transfer's Confirm. Where the box's own Enter wo
 Blizzard's UI may make the addon's - the Auction House's search keeps its filters in a table the results
 (and buying) read; Who and the Finders search the server - Enter presses the window's own button through
 the Enter key's secure action (`type = "click"`), so the press is Blizzard's; where it would pick a result
-from the addon's code (the professions' small search), Enter only lets go of typing. Not the stack buy
+from the addon's code (the professions' small search) or only move on to a hidden box (the Black
+Market's bid), Enter only lets go of typing. Not the stack buy
 quantity: its price is worked out only on a real keyboard's typing, and Buy checks it against the
 server's. Besides those, it types into boxes another addon made, and into no chat box at all (below). Whose a box is comes from
 where it was made: the first named frame from the box up (short of `UIParent`) is Blizzard's if its global
@@ -299,7 +300,8 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
       confirmation. A stack's buy quantity: no keyboard, a note pointing to the price list.
 - [ ] The searches in Mounts, Pets, Appearances, the transmogrifier, Professions and the AddOns list: typing
       filters the list; Enter closes the keyboard. Then play on: no "blocked" message.
-- [ ] Who (Social > Who): Enter searches. The Guild Finder and crafting orders' search: Enter searches.
+- [ ] Who (Social > Who): Enter searches. The Guild Finder and crafting orders' search: Enter searches
+      (crafting orders' Search button reacts to the press, not the release: it may not fire).
 - [ ] A currency transfer's amount opens the numpad; Confirm transfers that amount.
 - [ ] Mail text (several lines): Enter / holding A start a new line; the preview shows "line 2 of 2".
 - [ ] Edit Mode: the keyboard shows with a blue selection, under Edit Mode's panels; dragging moves it, the

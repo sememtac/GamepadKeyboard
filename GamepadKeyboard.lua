@@ -763,12 +763,13 @@ local REVIEWED = {
 	{ box = { "ProfessionsCustomerOrdersFrame", "Form", "OrderRecipientTarget" } },
 	{ box = { "ProfessionsCustomerOrdersFrame", "Form", "PaymentContainer", "TipMoneyInputFrame", "GoldBox" }, enter = "clear" },
 	{ box = { "ProfessionsCustomerOrdersFrame", "Form", "PaymentContainer", "TipMoneyInputFrame", "SilverBox" }, enter = "clear" },
-	-- A currency transfer's amount (Confirm reads the box), the alarm's message, a guild charter's name, the
-	-- Black Market's bid (Bid only opens Blizzard's confirmation).
+	-- A currency transfer's amount (Confirm reads the box), the alarm's message, a guild charter's name (its
+	-- own Enter is Purchase's), the Black Market's bid (Bid reads it, then Blizzard's confirmation; its own
+	-- Enter only moves on to a silver box the Black Market hides).
 	{ box = { "CurrencyTransferMenu", "Content", "AmountSelector", "InputBox" } },
 	{ box = { "TimeManagerAlarmMessageEditBox" } },
 	{ box = { "GuildRegistrarFrameEditBox" }, enter = { "GuildRegistrarFramePurchaseButton" } },
-	{ box = { "BlackMarketBidPrice", "gold" }, enter = { "BlackMarketFrame", "BidButton" } },
+	{ box = { "BlackMarketBidPrice", "gold" }, enter = "clear" },
 };
 -- The auction house's sell forms (an item, a stack): quantity (its handler acts only on a real keyboard's
 -- typing) and price (redraws the form; its undercut hint never shows in the controller UI) - Create Auction
