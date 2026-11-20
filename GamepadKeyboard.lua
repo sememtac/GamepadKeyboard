@@ -254,6 +254,14 @@ local function FindInRows(rows, from, direction)
 	return nil;
 end
 
+local function Override(button, direction, destination)
+	applied[button] = applied[button] or {};
+	if applied[button][direction] ~= destination then
+		local ok = pcall(SmartNavigation_AddJumpNavigationOverride, button, SMART_NAV_INPUT_DIRECTION[direction], destination);
+		applied[button][direction] = ok and destination or nil;
+	end
+end
+
 local function RefreshNavigation()
 	if not registered or InCombatLockdown() then
 		return;
@@ -277,13 +285,8 @@ local function RefreshNavigation()
 	end
 	for _, row in ipairs(rows) do
 		for _, button in ipairs(row) do
-			applied[button] = applied[button] or {};
 			for direction in pairs(DIRECTIONS) do
-				local destination = FindInRows(rows, button, direction) or true;
-				if applied[button][direction] ~= destination then
-					local ok = pcall(SmartNavigation_AddJumpNavigationOverride, button, SMART_NAV_INPUT_DIRECTION[direction], destination);
-					applied[button][direction] = ok and destination or nil;
-				end
+				Override(button, direction, FindInRows(rows, button, direction) or true);
 			end
 		end
 	end
@@ -777,6 +780,9 @@ local function OpenChatList(chatKey)
 	picking = true;
 	RefreshNavigation();
 	PointAt(current or chatChoices[1]);
+	if registered and not InCombatLockdown() and SmartNavigation_AddJumpNavigationOverride and SMART_NAV_INPUT_DIRECTION then
+		Override(chatKey, "UP", current or chatChoices[1]); -- (the cursor left on the key: up into the list; back as it was after)
+	end
 end
 
 local function PickChat(choice)
@@ -958,6 +964,7 @@ local function EnterPostClick(button)
 	end
 	local sentLine = button:GetAttribute("macrotext") or "";
 	SetPressAction(button); -- nothing for a later press to send again
+	CloseChatList(); -- (Enter clicked past the chat list: it goes)
 	local box, overChat = target, isChat;
 	if not box then
 		return;

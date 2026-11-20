@@ -1454,6 +1454,7 @@ check(chatList() == "Say,Party,Raid,Instance,Guild,Officer,Yell,To Bob" and prev
 	"...then a reply to whoever whispered last (the text kept, the chat box never touched)")
 -- The list: over the keys, the D-pad's cursor on the line's chat, up and down it and nowhere else.
 local choices = kb.ChatChoices
+local aboveChatKey = overrides[chatKey].up -- (with the list closed: a key above it)
 playerClick(chatKey)
 check(kb.ChatList.shown and choices[1].shown and choices[8].shown and not choices[9].shown and navCurrent == choices[1]
 	and navTargets[#navTargets] == false and navTargets[#navTargets - 1] == choices[1],
@@ -1464,12 +1465,15 @@ check(kb.ChatList.level > kb:GetFrameLevel() and choices[1].level > kb.ChatList.
 check(overrides[choices[1]].down == choices[2] and overrides[choices[1]].up == choices[8] and overrides[choices[8]].down == choices[1]
 	and overrides[choices[2]].left == true and overrides[choices[2]].right == true,
 	"...up / down along it, round at the ends; left / right nowhere")
+check(overrides[chatKey].up == choices[1], "...and up from the chat key into it (should the cursor stay on the key)")
 navCurrent = overrides[choices[1]].down; pressA() -- (D-pad down, A)
+check(aboveChatKey and aboveChatKey.key and overrides[chatKey].up == aboveChatKey,
+	"...closed: up from the chat key to the key above it again (" .. tostring(aboveChatKey and aboveChatKey.key) .. ")")
 check(not kb.ChatList.shown and not choices[1].shown and chatKey.text == "Party" and navCurrent == chatKey and navTargets[#navTargets] == false
 	and kb.ChatHeader.text == "Party:" and kb.ChatHeader.textColor[3] == 1 and kb.ChatHeader.textColor[1] < 1 and preview() == "Hi" .. CARET,
 	"...A takes Party: the list goes, the cursor back on the chat key; the key and the header follow (in Party's blue), the line kept")
 playerClick(chatKey)
-check(navCurrent == choices[2], "opened again: the cursor on Party now")
+check(navCurrent == choices[2] and overrides[chatKey].up == choices[2], "opened again: the cursor on Party now (up from the chat key too)")
 before = #macros
 held.PAD1 = true; secureClick(GamepadKeyboardAButton, true) -- A held on Guild
 navCurrent = choices[5]
@@ -1482,6 +1486,13 @@ check(kb:IsShown() and not kb.ChatList.shown and chatKey.text == "Guild" and nav
 	"B in the list: back to the keys, the chat as it was (the keyboard stays)")
 playerClick(chatKey); playerClick(chatKey)
 check(kb:IsShown() and not kb.ChatList.shown and chatKey.text == "Guild", "the chat key again (a click): the list goes")
+GamepadKeyboardDB.closeOnEnter = false
+type("x"); playerClick(chatKey); before = #macros
+playerClick(key("ENTER")) -- (a click: the D-pad doesn't reach Enter past the list)
+check(macros[#macros] == "/g Hix" and #macros == before + 1 and kb:IsShown() and not kb.ChatList.shown,
+	"Enter clicked with the list open (staying open after Enter): sent, and the list goes")
+GamepadKeyboardDB.closeOnEnter = nil
+type("hi")
 playerClick(chatKey); pad("PAD4")
 check(not kb.ChatList.shown and preview() == "Hi " .. CARET, "Y with the list open: the list goes, Y types its space")
 pad("PAD3")
