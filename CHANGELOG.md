@@ -4,8 +4,9 @@
 
 - The Auction House's search box works with the keyboard. Enter (or holding A) presses its Search button,
   the same as pressing it yourself.
-- The chat key steps through every chat - Say, Party, Raid, Instance, Guild, Officer, Yell, then whispers -
-  whether you're in a group or guild or not. One you aren't in gets the game's own message.
+- The chat key opens a list of every chat - Say, Party, Raid, Instance, Guild, Officer, Yell, then
+  whispers - with the cursor on the one you're in: D-pad up / down, A picks, B goes back. Every chat is
+  there whether you're in a group or guild or not; one you aren't in gets the game's own message.
 - The line shows its chat in front of it - "Guild:", "To Bob:" - in the chat's colour.
 - More of the game's text boxes work with the keyboard: the searches in Mounts, Pets, Appearances, the
   transmogrifier, Professions (and its crafting orders) and the AddOns list; Who; the Guild and Community

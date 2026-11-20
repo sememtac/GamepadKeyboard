@@ -42,15 +42,16 @@ into its line.
 A line already in the chat box - a link Blizzard put there (a shift-click with the chat box open, or a
 window's "link in chat" opening chat with one), or what a real keyboard typed - is the chat box's: the
 keyboard can't move it. While the keyboard's own line is empty, the preview shows it ("in the chat box:
-Enter, then A sends it"), the chat key switches its chat too (and its header), and Enter takes you back
+Enter, then A sends it"), a chat picked with the chat key is its chat too (and its header), and Enter takes you back
 to the chat box, where the chat's own A sends it. Typing starts the keyboard's own line instead.
 
-The **chat key** (bottom row, beside Space) shows who you're talking to - Say, Party, To Bob, /2 - and
-steps through every chat: Say, Party, Raid, Instance, Guild, Officer, Yell, the whisper the chat was in
-(opened from a name, or started while the keyboard was up), and a reply to whoever whispered you last.
-All of them, in a group or a guild or not: sending to one you aren't in gets the game's own "you aren't in
-a party". What you've typed stays. The line is headed by its chat - "Guild:", "To Bob:" - in the chat's
-colour, as the chat box heads its own.
+The **chat key** (bottom row, beside Space) shows who you're talking to - Say, Party, To Bob, /2. A on it
+opens a list of every chat over the keys, each in its colour, with the cursor on the one you're in: Say,
+Party, Raid, Instance, Guild, Officer, Yell, the whisper the chat was in (opened from a name, or started
+while the keyboard was up), and a reply to whoever whispered you last. D-pad up / down, A picks (held too),
+B goes back to the keys without changing it. All of them, in a group or a guild or not: sending to one you
+aren't in gets the game's own "you aren't in a party". What you've typed stays. The line is headed by its
+chat - "Guild:", "To Bob:" - in the chat's colour, as the chat box heads its own.
 
 Not **Battle.net whispers**, nor a chat with no slash command (voice text): Blizzard sends those only from
 its own chat box, so the keyboard doesn't open for them (it says so, once) - a real keyboard types there as
@@ -245,7 +246,10 @@ callbacks (`SuspendFrame`, `UnsuspendFrame`) aren't isolated - and the focused f
 put back on the close, then had the game block `SetPreferredGamepadInteractTarget()` (the interact
 icon) and `TargetNearestEnemy()` (RB) for the rest of the session. So the dropdown's `OpenMenu` (where a
 click goes) and the control's `OnSmartNavClick` (the controller's A) pick the next layout, and the
-steppers pick without a menu. Edit Mode is followed through
+steppers pick without a menu. The chat key's list isn't a menu either: the keyboard's own buttons over its
+keys (a backing that takes the mouse), the D-pad kept on them by jump overrides, and the cursor put on the
+line's chat with `SmartNavigation:SetTargetButtonForFrame` - the setter Blizzard wraps for outside callers -
+its target cleared again straight after. Edit Mode is followed through
 `EventRegistry` (`EditMode.Enter` / `EditMode.Exit`); in it the keyboard is a preview on the HIGH layer
 (under Edit Mode's DIALOG panels) that never registers with the gamepad UI or follows typing focus. The
 keyboard holds secure buttons, so in combat only Blizzard's UI may hide it or change its layer: the
@@ -306,9 +310,11 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
 - [ ] Mail text (several lines): Enter / holding A start a new line; the preview shows "line 2 of 2".
 - [ ] Edit Mode: the keyboard shows with a blue selection, under Edit Mode's panels; dragging moves it, the
       mouse wheel resizes it; after Edit Mode it opens there at that size.
-- [ ] The chat key goes Say -> Party -> Raid -> Instance -> Guild -> Officer -> Yell (-> To <last whisperer>)
-      and back to Say, in a group or not; the key's label and the line's coloured header ("Party:") change
-      with it, the text stays, and Enter sends to that chat (one you aren't in: the game's own message).
+- [ ] A on the chat key: a list of Say, Party, Raid, Instance, Guild, Officer, Yell (, To <last whisperer>)
+      opens above it, in their colours, the cursor on the current chat; D-pad up / down moves (round at the
+      ends), left / right stay; A picks - the key's label and the line's coloured header ("Party:") change,
+      the text stays, and Enter sends to that chat (one you aren't in: the game's own message). B closes
+      just the list. With the keyboard dragged to the top of the screen, the list stays on the screen.
 - [ ] LT / RT move between the keyboard and other open windows.
 - [ ] The keyboard can be dragged and reopens where it was left; for chat it doesn't cover the chat window.
 - [ ] After B, Chat on the menu dial (or A on a name box) brings the keyboard back.
@@ -325,8 +331,8 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
 - [ ] Combat starting while typing: the keyboard closes without an "Interface action failed" or "blocked"
       message, and the line is back the next time it opens on chat.
 - [ ] Shift-click an item while the keyboard is up over chat: the link goes into the line and is sent with it.
-- [ ] A link already in the chat box when the keyboard comes up: the preview shows it; the chat key switches
-      the chat box's header too (Say -> Guild); Enter, then A, sends it to that chat.
+- [ ] A link already in the chat box when the keyboard comes up: the preview shows it; a chat picked from
+      the chat key's list switches the chat box's header too (Say -> Guild); Enter, then A, sends it there.
 - [ ] A Battle.net whisper (friends list): the keyboard doesn't open, a note says why.
 - [ ] A on the bag search box, the Options search, a confirmation popup's box: no keyboard (a note the first
       time); closing the bags afterwards, no "blocked" message. Gesture Commands' name box still opens it.

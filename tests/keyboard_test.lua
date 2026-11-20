@@ -134,7 +134,13 @@ function manager:HandlePopupHide(popup)
 end
 GamepadMode = { FrameControlsManager = manager }
 local navCurrent -- the key the D-pad is on
-SmartNavigation = { RefreshButtonGroups = function() end, GetCurrentButton = function() return navCurrent end }
+local navTargets = {} -- SetTargetButtonForFrame: each button the cursor was put on (false: the target cleared)
+SmartNavigation = { RefreshButtonGroups = function() end, GetCurrentButton = function() return navCurrent end,
+	SetTargetButtonForFrame = function(_, frame, button) -- (wrapped for outside callers; selects it in the active panel)
+		assert(not world.combat and frame == GamepadKeyboardFrame)
+		navTargets[#navTargets + 1] = button or false
+		if button then navCurrent = button end
+	end }
 SMART_NAV_INPUT_DIRECTION = { UP = { dirKey = "up" }, DOWN = { dirKey = "down" }, LEFT = { dirKey = "left" }, RIGHT = { dirKey = "right" } }
 local overrides = {}
 function SmartNavigation_AddJumpNavigationOverride(button, direction, target)
@@ -490,17 +496,20 @@ local function key(k)
 	for _, f in ipairs(W.frames) do if f.parent == keyboard() and f.key == k and f.shown then return f end end
 end
 local function type(s) for c in s:gmatch(".") do playerClick(key(c == " " and "SPACE" or c:lower())) end end
--- The chat key pressed until it shows label; and what it steps through from where it is, round to there.
+-- The chat key's list: a chat in it picked (the chat key, then A on it); what it offers, top to bottom (then B).
 local function chatTo(label)
-	for _ = 1, 15 do
-		if key("CHAT").text == label then return true end
-		playerClick(key("CHAT"))
+	playerClick(key("CHAT"))
+	for _, choice in ipairs(keyboard().ChatChoices) do
+		if choice.shown and shown(choice.text) == label then playerClick(choice); return true end
 	end
+	keyboard():SmartNavigationCloseHandler()
 end
-local function chatCycle()
-	local start, seen = key("CHAT").text, {}
-	repeat playerClick(key("CHAT")); seen[#seen + 1] = key("CHAT").text until key("CHAT").text == start or #seen > 15
-	return table.concat(seen, ",")
+local function chatList()
+	playerClick(key("CHAT"))
+	local labels = {}
+	for _, choice in ipairs(keyboard().ChatChoices) do if choice.shown then labels[#labels + 1] = shown(choice.text) end end
+	keyboard():SmartNavigationCloseHandler()
+	return table.concat(labels, ",")
 end
 -- Done with chat: the keyboard's line dropped as a player would (RB to its end, X till it's empty, B - an
 -- unsent line would wait for the next chat), then the chat closed.
@@ -656,7 +665,7 @@ pad("PADLSHOULDER"); playerClick(key("SYMBOLS")); pad("PAD4"); playerClick(key("
 check(preview() == "Hiy " .. CARET .. "o", "on the symbols page too (Space, Del)")
 playerClick(key("LETTERS"))
 pad("PADLSHOULDER")
-playerClick(key("CHAT"))
+chatTo("Party")
 check(key("CHAT").text == "Party" and preview() == "Hiy" .. CARET .. " o", "the chat key keeps the cursor")
 -- The controller UI binding X over the keyboard's while it's open: the keyboard's again.
 SetOverrideBindingClick(UIParent, true, "PAD3", "Blizzard_Other")
@@ -1087,7 +1096,7 @@ chatBox.text = "[Sword]" -- (ChatFrameUtil.OpenChat(link): chat opened with the 
 openChat("SAY"); poll()
 check(kb:IsShown() and preview():find("^%[Sword%]") and preview():find("Enter, then A sends it", 1, true) and key("CHAT").text == "Say",
 	"the chat box already holds a line (a link): the preview shows it, and how it's sent")
-playerClick(key("CHAT"))
+chatTo("Party")
 check(key("CHAT").text == "Party" and chatBox.attrs.chatType == "PARTY" and chatBox.header == "PARTY:nil" and chatBox:GetText() == "[Sword]",
 	"...the chat key steers the chat box's own line: its chat and its header (the text untouched)")
 before = #macros
@@ -1438,19 +1447,60 @@ local chatKey = key("CHAT")
 check(chatKey and chatKey.text == "Say" and kb.ChatHeader.text == "Say:" and kb.ChatHeader.shown and kb.Preview.points[1][2] == kb.ChatHeader,
 	"chat: a chat key showing the chat, and the line headed by it (the line after the header)")
 type("hi")
-check(chatCycle() == "Party,Raid,Instance,Guild,Officer,Yell,Say" and preview() == "Hi" .. CARET,
-	"every chat, in a group or a guild or not (where you aren't, the game says so): Say, Party, Raid, Instance, Guild, Officer, Yell")
+check(chatList() == "Say,Party,Raid,Instance,Guild,Officer,Yell" and preview() == "Hi" .. CARET,
+	"the chat key: a list of every chat, in a group or a guild or not (where you aren't, the game says so)")
 lastTell, lastTellType = "Bob-Realm", "WHISPER"
-check(chatCycle() == "Party,Raid,Instance,Guild,Officer,Yell,To Bob,Say" and preview() == "Hi" .. CARET and #chatWrites == 0,
-	"...then a reply to whoever whispered last, and round to Say (the text kept, the chat box never touched)")
+check(chatList() == "Say,Party,Raid,Instance,Guild,Officer,Yell,To Bob" and preview() == "Hi" .. CARET and #chatWrites == 0,
+	"...then a reply to whoever whispered last (the text kept, the chat box never touched)")
+-- The list: over the keys, the D-pad's cursor on the line's chat, up and down it and nowhere else.
+local choices = kb.ChatChoices
 playerClick(chatKey)
-check(chatKey.text == "Party" and kb.ChatHeader.text == "Party:" and kb.ChatHeader.textColor[3] == 1 and kb.ChatHeader.textColor[1] < 1,
-	"...the header follows, in the chat's colour (Party's blue)")
+check(kb.ChatList.shown and choices[1].shown and choices[8].shown and not choices[9].shown and navCurrent == choices[1]
+	and navTargets[#navTargets] == false and navTargets[#navTargets - 1] == choices[1],
+	"the list opens with the D-pad's cursor on the line's chat (Say); the keyboard's target cleared after")
+check(kb.ChatList.level > kb:GetFrameLevel() and choices[1].level > kb.ChatList.level and choices[1].parent == kb and kb.ChatList.mouse
+	and choices[1].points[1][2] == kb.ChatList and kb.ChatList.points[1][2] == chatKey and kb.ChatList.clamped,
+	"...over the keys, up from the chat key, on the screen (the mouse doesn't reach the keys through it); its buttons the keyboard's own")
+check(overrides[choices[1]].down == choices[2] and overrides[choices[1]].up == choices[8] and overrides[choices[8]].down == choices[1]
+	and overrides[choices[2]].left == true and overrides[choices[2]].right == true,
+	"...up / down along it, round at the ends; left / right nowhere")
+navCurrent = overrides[choices[1]].down; pressA() -- (D-pad down, A)
+check(not kb.ChatList.shown and not choices[1].shown and chatKey.text == "Party" and navCurrent == chatKey and navTargets[#navTargets] == false
+	and kb.ChatHeader.text == "Party:" and kb.ChatHeader.textColor[3] == 1 and kb.ChatHeader.textColor[1] < 1 and preview() == "Hi" .. CARET,
+	"...A takes Party: the list goes, the cursor back on the chat key; the key and the header follow (in Party's blue), the line kept")
+playerClick(chatKey)
+check(navCurrent == choices[2], "opened again: the cursor on Party now")
+before = #macros
+held.PAD1 = true; secureClick(GamepadKeyboardAButton, true) -- A held on Guild
+navCurrent = choices[5]
+for _ = 1, 60 do poll() end
+check(not kb.HoldPrompt.icon.holding and not key("ENTER").locked, "...A held in the list: no hold ring, Enter not lit")
+held.PAD1 = nil; secureClick(GamepadKeyboardAButton, false); poll()
+check(chatKey.text == "Guild" and #macros == before and not kb.ChatList.shown, "...and let go: Guild taken, nothing sent")
+playerClick(chatKey); kb:SmartNavigationCloseHandler()
+check(kb:IsShown() and not kb.ChatList.shown and chatKey.text == "Guild" and navCurrent == chatKey,
+	"B in the list: back to the keys, the chat as it was (the keyboard stays)")
+playerClick(chatKey); playerClick(chatKey)
+check(kb:IsShown() and not kb.ChatList.shown and chatKey.text == "Guild", "the chat key again (a click): the list goes")
+playerClick(chatKey); pad("PAD4")
+check(not kb.ChatList.shown and preview() == "Hi " .. CARET, "Y with the list open: the list goes, Y types its space")
+pad("PAD3")
+playerClick(chatKey); keyboardKey("ESCAPE")
+check(not kb:IsShown() and not kb.ChatList.shown and not choices[1].shown, "closed with the list open (Escape): the list goes with it")
+menuDialChat(); poll()
+check(kb:IsShown() and not kb.ChatList.shown and not choices[1].shown and preview() == "Hi" .. CARET and chatKey.text == "Guild",
+	"closed with the list open: no list next time (the line and its chat kept)")
+playerClick(chatKey)
+padA(function() outside:SetFocus() end)
+check(kb:IsShown() and not kb.ChatList.shown and not choices[1].shown, "the list open, then another text box: no list there")
+kb:SmartNavigationCloseHandler(); outside:ClearFocus(); poll()
+menuDialChat(); poll()
+chatTo("Party")
 playerClick(key("ENTER"))
 check(macros[#macros] == "/p Hi" and chatBox.attrs.stickyType == "PARTY", "Enter sends to the chat picked")
 poll()
 openChat("SAY"); poll()
-playerClick(key("CHAT"))
+chatTo("Party")
 check(key("CHAT").text == "Party" and preview() == CARET and key("SHIFT").locked,
 	"with nothing typed yet: switched, still nothing typed, Shift still on")
 type("go")
@@ -1470,30 +1520,36 @@ endChat()
 openChat("WHISPER", "Alice"); poll()
 check(key("CHAT").text == "To Alice" and kb.ChatHeader.text == "To Alice:", "a whisper shows who to (the key and the header)")
 type("hey")
-check(chatCycle() == "To Bob,Say,Party,Raid,Instance,Guild,Officer,Yell,To Alice" and preview() == "Hey" .. CARET,
-	"...from a whisper to someone else: the reply, every chat, and back to the whisper it was opened in (the text kept)")
+check(chatList() == "Say,Party,Raid,Instance,Guild,Officer,Yell,To Alice,To Bob" and preview() == "Hey" .. CARET,
+	"...from a whisper to someone else: every chat, the whisper it was opened in, the reply (the text kept)")
+playerClick(key("CHAT"))
+check(navCurrent == kb.ChatChoices[8], "...the list's cursor on her")
+kb:SmartNavigationCloseHandler()
+chatTo("To Bob"); playerClick(key("CHAT"))
+check(navCurrent == kb.ChatChoices[9], "...switched to the reply: the cursor on Bob next time (whispers told apart by who to)")
+playerClick(kb.ChatChoices[8])
 lastTell = "Alice"
-check(chatCycle() == "Say,Party,Raid,Instance,Guild,Officer,Yell,To Alice", "she whispers meanwhile (the reply is to her now): offered once")
+check(chatList() == "Say,Party,Raid,Instance,Guild,Officer,Yell,To Alice", "she whispers meanwhile (the reply is to her now): offered once")
 lastTell = "Bob-Realm"
 playerClick(key("ENTER"))
 check(macros[#macros] == "/w Alice Hey", "Enter sends it to her")
 endChat()
 openChat("WHISPER", "Bob-Realm"); poll()
-check(chatCycle() == "Say,Party,Raid,Instance,Guild,Officer,Yell,To Bob", "the whisper and the reply to the same person: offered once")
+check(chatList() == "Say,Party,Raid,Instance,Guild,Officer,Yell,To Bob", "the whisper and the reply to the same person: offered once")
 endChat()
 -- A Battle.net whisperer to reply to: not offered (a macro line can't say it).
 lastTell, lastTellType = "|Kq7|k", "BN_WHISPER"
 openChat("SAY"); poll()
-check(chatCycle() == "Party,Raid,Instance,Guild,Officer,Yell,Say", "a Battle.net whisper to reply to: not offered")
+check(chatList() == "Say,Party,Raid,Instance,Guild,Officer,Yell", "a Battle.net whisper to reply to: not offered")
 endChat()
 -- A whisper started in the chat box while the keyboard is up: the line goes there, and it's offered back.
 lastTell, lastTellType = nil, nil
 openChat("SAY"); poll()
-check(chatCycle() == "Party,Raid,Instance,Guild,Officer,Yell,Say", "a new chat: no whisper from before offered")
+check(chatList() == "Say,Party,Raid,Instance,Guild,Officer,Yell", "a new chat: no whisper from before offered")
 chatBox.attrs.chatType, chatBox.attrs.tellTarget = "WHISPER", "Carol" -- (a name's menu, "/w Carol " on a real keyboard)
 poll()
 check(key("CHAT").text == "To Carol" and kb.ChatHeader.text == "To Carol:", "a whisper started in the chat box meanwhile: the line goes to her")
-check(chatCycle() == "Say,Party,Raid,Instance,Guild,Officer,Yell,To Carol", "...and she's offered back too")
+check(chatList() == "Say,Party,Raid,Instance,Guild,Officer,Yell,To Carol", "...and she's offered back too")
 lastTell, lastTellType = "Bob-Realm", "WHISPER"
 endChat()
 openChat("WHISPER", "Christopherson"); poll()
@@ -1501,6 +1557,9 @@ check(key("CHAT").text == "To Christop..", "a long name is cut to fit")
 endChat()
 openChat("CHANNEL", nil, 2); poll()
 check(key("CHAT").text == "/2" and kb.ChatHeader.text == "/2:", "a channel shows its number")
+playerClick(key("CHAT"))
+check(navCurrent == kb.ChatChoices[1], "...its list: the cursor on Say (a channel isn't in it)")
+kb:SmartNavigationCloseHandler()
 endChat()
 padA(function() outside:SetFocus() end)
 check(kb:IsShown() and not kb.ChatHeader.shown and kb.Preview.points[1][1] == "TOPLEFT" and kb.Preview.points[1][2] == 16,

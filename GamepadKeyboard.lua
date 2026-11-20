@@ -116,6 +116,8 @@ local closing = false; -- while closing hands the controller back (which focuses
 local previewing = false; -- shown in Edit Mode to be placed, not typing anywhere
 local lastInput = "gamepad"; -- what the player pressed last: "gamepad", "keyboard" or "mouse"
 local chatHadFocus; -- while open over chat: whether the chat box had typing focus last frame
+local picking = false; -- the chat list is open (see OpenChatList)
+local chatChoices = {}; -- its buttons, each with the chat it's for (.entry)
 
 local function DB()
 	GamepadKeyboardDB = GamepadKeyboardDB or {};
@@ -263,7 +265,14 @@ local function RefreshNavigation()
 		return;
 	end
 	local rows = keys[page];
-	if suggesting then
+	if picking then
+		rows = {}; -- the chat list, one under another (and nowhere else: the keys under it aren't reached)
+		for _, choice in ipairs(chatChoices) do
+			if choice:IsShown() then
+				rows[#rows + 1] = { choice };
+			end
+		end
+	elseif suggesting then
 		rows = { suggestions, unpack(keys[page]) };
 	end
 	for _, row in ipairs(rows) do
@@ -278,6 +287,17 @@ local function RefreshNavigation()
 			end
 		end
 	end
+end
+
+-- The D-pad's cursor onto a button: SmartNavigation's setter for outside callers (wrapped, as
+-- RefreshButtonGroups is), then the keyboard's target there cleared again - the cursor would go back to it
+-- later (a list closed by then, a page not shown).
+local function PointAt(button)
+	if not registered or InCombatLockdown() or not (SmartNavigation and SmartNavigation.SetTargetButtonForFrame) then
+		return;
+	end
+	pcall(SmartNavigation.SetTargetButtonForFrame, SmartNavigation, keyboard, button);
+	pcall(SmartNavigation.SetTargetButtonForFrame, SmartNavigation, keyboard, nil);
 end
 
 -- Blizzard's LT / RT / View jump hints and focus glow (FocusFramesInterfaceTemplate): lift the hints to our
@@ -321,16 +341,18 @@ local function IsWhisper(chatType)
 	return chatType == "WHISPER" or chatType == "BN_WHISPER";
 end
 
-local function ChatLabel()
-	local chatType = chat.chatType;
+-- A chat's name (the line's, unless another's given): "Guild", "To Bob", "/2".
+local function ChatLabel(to)
+	to = to or chat;
+	local chatType = to.chatType;
 	if IsWhisper(chatType) then
-		local name = tostring(chat.tellTarget or ""):gsub("%-.*$", "");
+		local name = tostring(to.tellTarget or ""):gsub("%-.*$", "");
 		if Utf8Length(name) > 9 then
 			name = name:sub(1, 8) .. "..";
 		end
 		return "To " .. name;
 	elseif chatType == "CHANNEL" then
-		return "/" .. tostring(chat.channelTarget or "?");
+		return "/" .. tostring(to.channelTarget or "?");
 	end
 	return CHAT_LABELS[chatType] or "Chat";
 end
@@ -661,17 +683,21 @@ local function ChatTypesToUse()
 	return list;
 end
 
-local function NextChatType()
-	-- After the line's own chat (a whisper: by who it's to); from anything else (a channel, say): Say.
-	local list = ChatTypesToUse();
-	local current = 0;
-	for i, entry in ipairs(list) do
-		if entry.target and chat.chatType == "WHISPER" and entry.target == chat.tellTarget or not entry.target and entry.chatType == chat.chatType then
-			current = i;
-		end
+-- One of those as a chat (a whisper's target is who it's to).
+local function EntryChat(entry)
+	return { chatType = entry.chatType, tellTarget = entry.target };
+end
+
+-- Whether it's the line's own chat (a whisper: by who it's to).
+local function SameChat(entry)
+	if entry.target then
+		return chat.chatType == "WHISPER" and entry.target == chat.tellTarget;
 	end
-	local nextType = list[current % #list + 1];
-	chat = { chatType = nextType.chatType, tellTarget = nextType.target };
+	return entry.chatType == chat.chatType;
+end
+
+local function SetChat(entry)
+	chat = EntryChat(entry);
 	if (target:GetText() or "") ~= "" then
 		-- The chat box's own line goes there too: its chat (attributes - what its send reads, and they come
 		-- back clean) and its header (Blizzard's, which only redraws).
@@ -681,6 +707,83 @@ local function NextChatType()
 		target:UpdateHeader();
 	end
 	UpdatePreview();
+end
+
+-- The chat key opens a list of the chats over the keys - a dropdown of the keyboard's own buttons, the D-pad's
+-- cursor on the line's chat (from anything else, a channel say: on Say): up / down, A takes one (held too),
+-- B goes back. Not a Blizzard menu: one an addon opens runs the controller UI's menu callbacks as the addon's
+-- doing (see the layout option).
+local CHOICE_HEIGHT, CHOICE_STEP = 26, 28;
+
+-- A chat's name in its colour (in the text: a button's own colour changes with its highlight).
+local function ChatChoiceText(to)
+	local info = ChatTypeInfo and ChatTypeInfo[to.chatType];
+	if not (info and info.r) then
+		return ChatLabel(to);
+	end
+	local function Hex(value)
+		return math.floor(value * 255 + 0.5);
+	end
+	return ("|cff%02x%02x%02x%s|r"):format(Hex(info.r), Hex(info.g), Hex(info.b), ChatLabel(to));
+end
+
+local function VisibleChatKey()
+	for _, chatKey in ipairs(keyboard.ChatKeys) do
+		if chatKey:IsVisible() then
+			return chatKey;
+		end
+	end
+end
+
+local function HideChatList()
+	picking = false;
+	keyboard.ChatList:Hide();
+	for _, choice in ipairs(chatChoices) do
+		choice:Hide();
+	end
+end
+
+-- Back to the keys, the cursor on the chat key.
+local function CloseChatList()
+	if picking then
+		HideChatList();
+		RefreshNavigation();
+		PointAt(VisibleChatKey());
+	end
+end
+
+local function OpenChatList(chatKey)
+	local list = ChatTypesToUse();
+	local frame = keyboard.ChatList;
+	frame:SetFrameLevel(keyboard:GetFrameLevel() + 10); -- (over the keys)
+	frame:SetSize(chatKey.width + 12, #list * CHOICE_STEP - (CHOICE_STEP - CHOICE_HEIGHT) + 12);
+	frame:ClearAllPoints();
+	frame:SetPoint("BOTTOMLEFT", chatKey, "TOPLEFT", -6, GAP); -- up from the key (kept on the screen)
+	local current;
+	for i, choice in ipairs(chatChoices) do
+		local entry = list[i];
+		choice.entry = entry;
+		choice:SetShown(entry ~= nil);
+		if entry then
+			choice:SetFrameLevel(frame:GetFrameLevel() + 1);
+			choice:SetSize(chatKey.width, CHOICE_HEIGHT);
+			choice:ClearAllPoints();
+			choice:SetPoint("TOPLEFT", frame, "TOPLEFT", 6, -6 - (i - 1) * CHOICE_STEP);
+			choice:SetText(ChatChoiceText(EntryChat(entry)));
+			current = current or (SameChat(entry) and choice);
+		end
+	end
+	frame:Show();
+	picking = true;
+	RefreshNavigation();
+	PointAt(current or chatChoices[1]);
+end
+
+local function PickChat(choice)
+	if picking and choice.entry and isChat and target then
+		SetChat(choice.entry);
+	end
+	CloseChatList();
 end
 
 local function Close()
@@ -697,6 +800,12 @@ end
 
 local function Press(button)
 	local key = button.key;
+	if picking then
+		CloseChatList(); -- (a key pressed past it - X, Y, the mouse: the list goes; the chat key: just that)
+		if key == CHAT then
+			return;
+		end
+	end
 	Sync();
 	if key == BACK then
 		DeleteBack();
@@ -711,7 +820,7 @@ local function Press(button)
 		RefreshNavigation();
 	elseif key == CHAT then
 		if isChat and target then
-			NextChatType();
+			OpenChatList(button);
 		end
 	else
 		Insert(shift and key:upper() or key);
@@ -940,12 +1049,14 @@ local function APreClick(button, _, down)
 	end
 	if down then
 		aDownAt = GetTime(); -- (it acts on the release, set then)
-		HoldRing(true);
+		if not picking then
+			HoldRing(true);
+		end
 		return;
 	end
 	HoldRing(false);
 	local current = SmartNavigation and SmartNavigation.GetCurrentButton and SmartNavigation:GetCurrentButton();
-	local held = aDownAt and GetTime() - aDownAt >= HoldTime();
+	local held = not picking and aDownAt and GetTime() - aDownAt >= HoldTime(); -- (in the chat list: a pick)
 	if not aDownAt then
 		button.action = nil; -- a release whose press went elsewhere (A that opened the keyboard)
 	elseif held or (current and current.key == ENTER) then
@@ -1054,7 +1165,7 @@ end
 
 -- Held long enough: the Enter keys light up (letting go sends).
 local function UpdateHoldHint()
-	local lit = aDownAt ~= nil and GetTime() - aDownAt >= HoldTime();
+	local lit = not picking and aDownAt ~= nil and GetTime() - aDownAt >= HoldTime();
 	if keyboard and keyboard.EnterKeys and keyboard.holdLit ~= lit then
 		keyboard.holdLit = lit;
 		for _, enterKey in ipairs(keyboard.EnterKeys) do
@@ -1153,6 +1264,20 @@ local function CreateKeyboard()
 		suggestions[i] = button;
 	end
 
+	-- The chat list: its backing (the mouse doesn't reach the keys through it), its buttons the keyboard's
+	-- own, as keys are, set on it.
+	keyboard.ChatList = CreateFrame("Frame", nil, keyboard, "TooltipBackdropTemplate");
+	keyboard.ChatList:EnableMouse(true);
+	keyboard.ChatList:SetClampedToScreen(true);
+	keyboard.ChatList:Hide();
+	for i = 1, #CHAT_TYPES + 2 do -- (and the two whispers: see ChatTypesToUse)
+		local choice = CreateFrame("Button", nil, keyboard, "UIPanelButtonTemplate");
+		choice:SetScript("OnClick", PickChat);
+		choice:Hide();
+		chatChoices[i] = choice;
+	end
+	keyboard.ChatChoices = chatChoices;
+
 	-- A presses this one (hidden, secure: Enter's macro line runs from it).
 	local aButton = CreateFrame("Button", "GamepadKeyboardAButton", keyboard, "SecureActionButtonTemplate");
 	aButton:RegisterForClicks("AnyDown", "AnyUp");
@@ -1185,7 +1310,11 @@ local function CreateKeyboard()
 	keyboard.CloseButton:SetScript("OnClick", Close);
 	-- Controller B: go back, rather than Blizzard's gamepad UI pressing the close button.
 	function keyboard:SmartNavigationCloseHandler()
-		Close();
+		if picking then
+			CloseChatList(); -- (from the chat list: back to the keys)
+		else
+			Close();
+		end
 		return true;
 	end
 
@@ -1211,6 +1340,7 @@ local function CreateKeyboard()
 			KeepChatDraft();
 		end
 		handedBack = target;
+		HideChatList();
 		ClearShortcuts();
 		aDownAt = nil; -- a press the keyboard closed under isn't a hold next time
 		HoldRing(false);
@@ -1259,6 +1389,7 @@ local function SetTarget(box)
 	lastBoxName = (box:GetName() or "an unnamed text box") .. " in " .. tostring(parent and parent:GetName() or "an unnamed frame");
 	chatHadFocus = nil; -- a new box: no focus seen yet
 	whisperedTo = nil; -- (the box's own, if it's in one, at the next preview)
+	HideChatList();
 	isChat = box.chatFrame ~= nil;
 	suggesting = Setting("names") and LooksUpNames(box);
 	if isChat then
