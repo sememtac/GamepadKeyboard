@@ -726,16 +726,96 @@ end
 -- The keyboard
 -------------------------------------------------------------------------------
 
--- Before the secure macro action runs: the line to send (out of combat - the keyboard is closed in combat).
--- The auction house's search box: typing there only redraws the box (its search icon, clear button, hint).
--- Its own Enter isn't run from here - it keeps the filters in a table shared with the results, which lead
--- to buying, a call only Blizzard's UI may make. Enter presses its Search button instead.
-local function AuctionSearchButton(box)
-	local searchBar = AuctionHouseFrame and AuctionHouseFrame.SearchBar;
-	if searchBar and box == searchBar.SearchBox then
-		return searchBar.SearchButton;
+-- Blizzard's own text boxes looked through: what typing runs there (as this addon's doing) only redraws,
+-- reads or filters a list, and what they lead to reads the box itself (GetText / GetNumber) - so the calls
+-- only Blizzard's UI may make stay Blizzard's. The rest are left to a real keyboard. Each is found where it
+-- is (a global name, then keys: windows that load when first opened aren't there before), with what Enter
+-- does there: its own Enter (no `enter`), "clear" (let go of typing), or one of its buttons - pressed through
+-- the Enter key's secure action, where its own Enter would make a call only Blizzard's UI may make (a
+-- search whose results lead to buying, a purchase) the addon's.
+local REVIEWED = {
+	-- The mail: To:, Subject:, text, money (read the text, show / hide the money boxes, enable Send; Enter in
+	-- the money moves to the next box).
+	{ box = { "SendMailNameEditBox" } }, { box = { "SendMailSubjectEditBox" } }, { box = { "SendMailBodyEditBox" } },
+	{ box = { "SendMailMoneyGold" } }, { box = { "SendMailMoneySilver" } }, { box = { "SendMailMoneyCopper" } },
+	-- The auction house's search (redraws the box; its own Enter keeps the filters in a table the results -
+	-- and buying - read).
+	{ box = { "AuctionHouseFrame", "SearchBar", "SearchBox" }, enter = { "AuctionHouseFrame", "SearchBar", "SearchButton" } },
+	-- Collections, the transmogrifier, professions, the addon list: list filters (results arrive later or
+	-- only redraw), their own Enter just drops focus.
+	{ box = { "MountJournal", "searchBox" } },
+	{ box = { "PetJournal", "searchBox" } },
+	{ box = { "WardrobeCollectionFrame", "SearchBox" } },
+	{ box = { "TransmogFrame", "WardrobeCollection", "TabContent", "ItemsFrame", "SearchBox" } },
+	{ box = { "TransmogFrame", "WardrobeCollection", "TabContent", "SetsFrame", "SearchBox" } },
+	{ box = { "ProfessionsFrame", "CraftingPage", "RecipeList", "SearchBox" } },
+	-- (its own Enter picks a result from the addon's code: SmartNavigation refuses that)
+	{ box = { "ProfessionsFrame", "CraftingPage", "MinimizedSearchBox" }, enter = "clear" },
+	{ box = { "AddonList", "SearchBox" } },
+	-- Searches whose own Enter makes a call only Blizzard's UI may make, as their buttons do: the button.
+	{ box = { "WhoFrameEditBox" }, enter = { "LFGWhoListFrame", "WhoSearch" } },
+	{ box = { "ClubFinderGuildFinderFrame", "OptionsList", "SearchBox" }, enter = { "ClubFinderGuildFinderFrame", "OptionsList", "Search" } },
+	{ box = { "ClubFinderCommunityAndGuildFinderFrame", "OptionsList", "SearchBox" },
+		enter = { "ClubFinderCommunityAndGuildFinderFrame", "OptionsList", "Search" } },
+	{ box = { "ProfessionsCustomerOrdersFrame", "BrowseOrders", "SearchBar", "SearchBox" },
+		enter = { "ProfessionsCustomerOrdersFrame", "BrowseOrders", "SearchBar", "SearchButton" } },
+	-- A crafting order: who it's for, the tip (the order reads them itself).
+	{ box = { "ProfessionsCustomerOrdersFrame", "Form", "OrderRecipientTarget" } },
+	{ box = { "ProfessionsCustomerOrdersFrame", "Form", "PaymentContainer", "TipMoneyInputFrame", "GoldBox" }, enter = "clear" },
+	{ box = { "ProfessionsCustomerOrdersFrame", "Form", "PaymentContainer", "TipMoneyInputFrame", "SilverBox" }, enter = "clear" },
+	-- A currency transfer's amount (Confirm reads the box), the alarm's message, a guild charter's name, the
+	-- Black Market's bid (Bid only opens Blizzard's confirmation).
+	{ box = { "CurrencyTransferMenu", "Content", "AmountSelector", "InputBox" } },
+	{ box = { "TimeManagerAlarmMessageEditBox" } },
+	{ box = { "GuildRegistrarFrameEditBox" }, enter = { "GuildRegistrarFramePurchaseButton" } },
+	{ box = { "BlackMarketBidPrice", "gold" }, enter = { "BlackMarketFrame", "BidButton" } },
+};
+-- The auction house's sell forms (an item, a stack): quantity (its handler acts only on a real keyboard's
+-- typing) and price (redraws the form; its undercut hint never shows in the controller UI) - Create Auction
+-- reads the boxes' numbers itself. And a single item's bid: Bid reads the boxes, then Blizzard's own
+-- confirmation. Not a stack's buy quantity (see SpecialNote).
+for _, form in ipairs({ "ItemSellFrame", "CommoditiesSellFrame" }) do
+	table.insert(REVIEWED, { box = { "AuctionHouseFrame", form, "QuantityInput", "InputBox" } });
+	for _, price in ipairs({ "PriceInput", "SecondaryPriceInput" }) do
+		for _, coin in ipairs({ "GoldBox", "SilverBox", "CopperBox" }) do
+			table.insert(REVIEWED, { box = { "AuctionHouseFrame", form, price, "MoneyInputFrame", coin } });
+		end
 	end
 end
+for _, coin in ipairs({ "gold", "silver", "copper" }) do
+	table.insert(REVIEWED, { box = { "AuctionHouseFrame", "ItemBuyFrame", "BidFrame", "BidAmount", coin } });
+end
+
+-- The frame at a place: a global's name, then keys (nil while any of it isn't there).
+local function FrameAt(place)
+	local node = _G[place[1]];
+	for i = 2, #place do
+		if type(node) ~= "table" then
+			return nil;
+		end
+		node = node[place[i]];
+	end
+	return node;
+end
+
+-- The looked-through entry for a box, if it's one.
+local function Reviewed(box)
+	for _, entry in ipairs(REVIEWED) do
+		if FrameAt(entry.box) == box then
+			return entry;
+		end
+	end
+end
+
+-- The button Enter presses for a box (nil: none - its own Enter, or just letting go).
+local function EnterButton(box)
+	local entry = Reviewed(box);
+	if entry and type(entry.enter) == "table" then
+		return FrameAt(entry.enter);
+	end
+end
+
+-- Before the secure macro action runs: the line to send (out of combat - the keyboard is closed in combat).
 
 -- What a press of a secure button (the Enter keys, A) does: a macro line (a chat line), or a press of a
 -- Blizzard button (the auction house's Search). Blizzard's secure action runs either, so it's Blizzard's
@@ -757,7 +837,7 @@ local function EnterPreClick(button)
 			line = nil; -- (the chat key moved it to a longer whisper)
 		end
 	end
-	SetPressAction(button, line, target and not isChat and AuctionSearchButton(target));
+	SetPressAction(button, line, target and EnterButton(target));
 end
 
 -- After it: chat closes like after Enter (the chat type sticks, as Enter makes it - an attribute, which comes
@@ -767,14 +847,15 @@ local function EnterPostClick(button)
 		return;
 	end
 	local sentLine = button:GetAttribute("macrotext") or "";
-	local searched = button:GetAttribute("clickbutton") and true or false;
 	SetPressAction(button); -- nothing for a later press to send again
 	local box, overChat = target, isChat;
 	if not box then
 		return;
 	end
-	if searched then
-		-- The search ran (its button, pressed securely); as its own Enter does, the box lets go of typing.
+	local entry = Reviewed(box);
+	if entry and type(entry.enter) == "table" then
+		-- Its button pressed (securely): the box lets go of typing, as its own Enter does. Never its own Enter
+		-- (not even with its button missing).
 		if Setting("closeOnEnter") then
 			Close();
 			box:ClearFocus();
@@ -818,7 +899,7 @@ local function EnterPostClick(button)
 		Insert("\n"); -- a new line (the mail's text, say); B is the way out
 		return;
 	end
-	local onEnter = box:GetScript("OnEnterPressed");
+	local onEnter = not (entry and entry.enter == "clear") and box:GetScript("OnEnterPressed");
 	if Setting("closeOnEnter") then
 		Close();
 	end
@@ -1250,47 +1331,7 @@ end
 -- search keeps the text for the panel's close, right before it saves key bindings: "blocked from an action
 -- only available to the Blizzard UI", blamed on this addon. So: chat boxes (never typed into: the keyboard
 -- keeps the line - in a chat a macro line can say), Blizzard boxes looked through, and boxes another addon
--- made. Not knowing whose: none.
--- Looked through: the mail's To:, Subject:, text and money (their handlers only read the text, show or hide
--- the money boxes and enable Send; Enter in the money moves to the next box).
-local REVIEWED_BOXES = {
-	SendMailNameEditBox = true, SendMailSubjectEditBox = true, SendMailBodyEditBox = true,
-	SendMailMoneyGold = true, SendMailMoneySilver = true, SendMailMoneyCopper = true,
-};
-
--- ...and the auction house's search (see AuctionSearchButton) and sell forms (an item, or a stack): their
--- quantity and price boxes, which have no names. The quantity's handler acts only on typing on a real
--- keyboard; a price change redraws the form (deposit, total, the Create Auction button; its undercut hint
--- never shows in the controller UI); Enter only drops focus. Create Auction reads the boxes' numbers itself
--- (GetNumber), so the post - a call only Blizzard's UI may make - stays Blizzard's. And a single item's bid
--- (gold, silver, copper): Bid reads the boxes' text itself, then Blizzard's own confirmation. Not a stack's
--- buy quantity (see SpecialNote).
-local function IsAuctionBox(box)
-	if AuctionSearchButton(box) then
-		return true;
-	end
-	local auctionHouse = AuctionHouseFrame;
-	if not auctionHouse then
-		return false;
-	end
-	local bidFrame = auctionHouse.ItemBuyFrame and auctionHouse.ItemBuyFrame.BidFrame;
-	local bid = bidFrame and bidFrame.BidAmount;
-	if bid and (box == bid.gold or box == bid.silver or box == bid.copper) then
-		return true;
-	end
-	for _, sellFrame in ipairs({ auctionHouse.ItemSellFrame, auctionHouse.CommoditiesSellFrame }) do
-		if sellFrame.QuantityInput and box == sellFrame.QuantityInput.InputBox then
-			return true;
-		end
-		for _, priceInput in ipairs({ sellFrame.PriceInput, sellFrame.SecondaryPriceInput }) do
-			local money = priceInput and priceInput.MoneyInputFrame;
-			if money and (box == money.GoldBox or box == money.SilverBox or box == money.CopperBox) then
-				return true;
-			end
-		end
-	end
-	return false;
-end
+-- made. Not knowing whose: none. (Blizzard's looked through: REVIEWED.)
 
 -- Whose a text box is - not from its handlers: a value this addon reads comes back as its own, so
 -- issecurevalue never says Blizzard's (in the game every box passed that, the bag search too). From where it
@@ -1320,7 +1361,7 @@ local function CanType(box)
 	if box.chatFrame then
 		return Sayable(ChatFor(box));
 	end
-	if REVIEWED_BOXES[box:GetName() or ""] or IsAuctionBox(box) then
+	if Reviewed(box) then
 		return true;
 	end
 	return MadeByBlizzard(box) == false;

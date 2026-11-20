@@ -7,6 +7,14 @@
 - The chat key steps through every chat - Say, Party, Raid, Instance, Guild, Officer, Yell, then whispers -
   whether you're in a group or guild or not. One you aren't in gets the game's own message.
 - The line shows its chat in front of it - "Guild:", "To Bob:" - in the chat's colour.
+- More of the game's text boxes work with the keyboard: the searches in Mounts, Pets, Appearances, the
+  transmogrifier, Professions (and its crafting orders) and the AddOns list; Who; the Guild and Community
+  Finder; a crafting order's recipient and tip; a currency transfer's amount; the alarm's message; a guild
+  charter's name; the Black Market's bid; an Auction House item's bid. Where the game's own Enter would
+  get the addon blocked (Who, the Finders, crafting orders, the guild charter, the Black Market), Enter
+  presses the window's button instead, as you would.
+- The Auction House's buy quantity (a stack) says why it doesn't open, and what to do instead: A on a row
+  of the price list buys up to it.
 
 ## 1.1.0
 

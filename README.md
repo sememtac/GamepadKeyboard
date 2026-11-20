@@ -124,13 +124,18 @@ Whichever you're using has the text box:
 - **A whisper started from a menu** (a name's Whisper, the chat's channels) while the keyboard is up: the
   keyboard's line goes to that person (the chat key shows it), LT / RT between the chat window and the
   keyboard or not.
-- **Which text boxes**: chat, the mail's To: / Subject: / text / money, the Auction House's search (Enter
-  presses its Search button) and sell form (quantity and price), and other addons' text boxes. Not the
-  game's other text boxes - the bag search, the Options search, confirmation popups, the Auction House's
-  buy forms and so on: what an
-  addon types into one runs the game's own code as the addon's doing, and some of that goes on into
-  things only the game's UI may do, so the game blocks the addon (it did for the bag search and the
-  Options search). A real keyboard types there as usual; the first time, it says so.
+- **Which text boxes**: chat; the mail's To: / Subject: / text / money; the Auction House's search, sell
+  form (quantity and price) and an item's bid; the searches in Mounts, Pets, Appearances, the
+  transmogrifier, Professions and the AddOns list; Who; the Guild and Community Finder; crafting orders
+  (search, recipient, tip); a currency transfer's amount; the alarm's message; a guild charter's name; the
+  Black Market's bid; and other addons' text boxes. In Who, the Finders, crafting orders' search, the
+  guild charter, the Black Market and the Auction House's search, Enter (or holding A) presses the
+  window's button - Search, Purchase, Bid - as you would. Not the game's other text boxes - the bag and
+  bank searches, the Options search, the spellbook and talent searches, confirmation popups, the Auction
+  House's buy quantity, trade money and so on: what an addon types into one runs the game's own code as
+  the addon's doing, and some of that goes on into things only the game's UI may do, so the game blocks
+  the addon (it did for the bag search and the Options search). A real keyboard types there as usual; the
+  first time, it says so (for the buy quantity: pick from the price list, A on a row buys up to it).
 - **Boxes of numbers** (a price, a quantity, the mail's gold / silver / copper) open on a numpad - 7 8 9 /
   4 5 6 / 1 2 3 / Del 0 Enter, every key the same size; letters and Space don't go in.
 - **If the game ever blocks it anyway**, it prints what was blocked and which text box it last typed into -
@@ -156,13 +161,17 @@ the controller's); the mouse by `GLOBAL_MOUSE_DOWN`.
 Typing runs the box's own handlers as this addon's doing (tainted): a Blizzard box's can reach calls only
 Blizzard's UI may make (the bag search fires a synchronous inventory event whose listeners reach the
 gamepad action bar's `SetPreferredGamepadInteractTarget`; the Options search keeps its text for the
-panel's close, which then calls `SaveBindings`). So it types only into Blizzard boxes looked through -
-the mail's To:, Subject:, text and money; the Auction House's search, whose typing only redraws the box
-(Enter doesn't run the box's own Enter - it keeps the filters in a table shared with the results, which
-lead to buying - but presses its Search button through the Enter key's secure action, `type = "click"`,
-so the search is Blizzard's); the Auction House sell forms' quantity and price, whose change
-only redraws the form while Create Auction reads the boxes' numbers itself (`GetNumber`), so the post (a
-call only Blizzard's UI may make) stays Blizzard's - and boxes another addon made - and into no chat box at all (below). Whose a box is comes from
+panel's close, which then calls `SaveBindings`). So it types only into Blizzard boxes looked through
+(the `REVIEWED` table: where each sits in Blizzard's frames - a global, then keys, since most windows load
+when first opened - and what Enter does there), whose typing only redraws the box, filters a list or reads
+the text, and whose window reads the box itself when it acts (`GetText`, `GetNumber`): the mail's Send,
+Create Auction, Bid, a currency transfer's Confirm. Where the box's own Enter would make a call only
+Blizzard's UI may make the addon's - the Auction House's search keeps its filters in a table the results
+(and buying) read; Who and the Finders search the server - Enter presses the window's own button through
+the Enter key's secure action (`type = "click"`), so the press is Blizzard's; where it would pick a result
+from the addon's code (the professions' small search), Enter only lets go of typing. Not the stack buy
+quantity: its price is worked out only on a real keyboard's typing, and Buy checks it against the
+server's. Besides those, it types into boxes another addon made, and into no chat box at all (below). Whose a box is comes from
 where it was made: the first named frame from the box up (short of `UIParent`) is Blizzard's if its global
 was set by Blizzard's code (`issecurevariable`), an addon's if not; with no named frame, the file it was
 made in (`GetSourceLocation`: Blizzard's own files, or an addon's); with neither, no keyboard. Not from the
@@ -286,6 +295,12 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
       results works - no "blocked" message.
 - [ ] Auction House, Sell: quantity and the price's gold / silver / copper open the numpad; then
       Create Auction posts it - no "blocked" message (taint log on).
+- [ ] Auction House, an item's bid: gold / silver / copper open the numpad; Bid shows Blizzard's
+      confirmation. A stack's buy quantity: no keyboard, a note pointing to the price list.
+- [ ] The searches in Mounts, Pets, Appearances, the transmogrifier, Professions and the AddOns list: typing
+      filters the list; Enter closes the keyboard. Then play on: no "blocked" message.
+- [ ] Who (Social > Who): Enter searches. The Guild Finder and crafting orders' search: Enter searches.
+- [ ] A currency transfer's amount opens the numpad; Confirm transfers that amount.
 - [ ] Mail text (several lines): Enter / holding A start a new line; the preview shows "line 2 of 2".
 - [ ] Edit Mode: the keyboard shows with a blue selection, under Edit Mode's panels; dragging moves it, the
       mouse wheel resizes it; after Edit Mode it opens there at that size.

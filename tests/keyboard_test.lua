@@ -1314,6 +1314,99 @@ check(#searches == 2 and preview() == "Ok" .. CARET, "...A left set to press Sea
 playerClick(key("ENTER"))
 check(macros[#macros] == "/s Ok" and #searches == 2, "...and Enter in chat still sends its line")
 poll()
+-- Blizzard's other looked-through boxes, found where they are once their window has loaded.
+local function blizzardBox(parent, center, name)
+	local box = W.CreateFrame("EditBox", name, parent, "InputBoxTemplate"); box.center = center
+	box.sourceLocation = "Interface/AddOns/Blizzard_Test/Test.xml:1"
+	if name then blizzardGlobals[name] = true end
+	return box
+end
+-- A list filter (the mount journal's): its own Enter.
+MountJournal = blizzardFrame(W.CreateFrame("Frame", "MountJournal", UIParent))
+MountJournal.searchBox = blizzardBox(MountJournal, { 400, 700 })
+local mountEnter = 0
+MountJournal.searchBox.scripts.OnEnterPressed = function(self) mountEnter = mountEnter + 1; self:ClearFocus() end
+manager:FrameShown(MountJournal)
+padA(function() MountJournal.searchBox:SetFocus() end)
+check(kb:IsShown() and key("q") and key("SPACE"), "the mount journal's search: the keyboard, letters")
+type("raptor"); before = #macros
+playerClick(key("ENTER"))
+check(MountJournal.searchBox:GetText() == "raptor" and mountEnter == 1 and #macros == before and not kb:IsShown(),
+	"...Enter: the box's own Enter (it only drops focus)")
+MountJournal.searchBox.text = ""; manager:FrameHidden(MountJournal); MountJournal = nil; poll()
+-- A search whose own Enter is Blizzard's to make (Who): its button, pressed securely.
+local whoBox = blizzardBox(UIParent, { 400, 700 }, "WhoFrameEditBox")
+_G.WhoFrameEditBox = whoBox
+LFGWhoListFrame = blizzardFrame(W.CreateFrame("Frame", "LFGWhoListFrame", UIParent))
+LFGWhoListFrame.WhoSearch = W.CreateFrame("Button", nil, LFGWhoListFrame)
+local whoSearches, whoEnter = {}, 0
+LFGWhoListFrame.WhoSearch.scripts.OnClick = function() whoSearches[#whoSearches + 1] = { text = whoBox:GetText(), secure = W.inSecure } end
+whoBox.scripts.OnEnterPressed = function() whoEnter = whoEnter + 1 end -- (C_FriendList.SendWho)
+manager:FrameShown(LFGWhoListFrame)
+padA(function() whoBox:SetFocus() end)
+type("bob")
+playerClick(key("ENTER"))
+check(#whoSearches == 1 and whoSearches[1].text == "bob" and whoSearches[1].secure and whoEnter == 0 and not kb:IsShown() and not whoBox:HasFocus(),
+	"Who: Enter presses Who's search button, securely - not the box's own Enter")
+-- Its button missing (a window half there): nothing pressed, and still never its own Enter.
+local whoButton = LFGWhoListFrame.WhoSearch; LFGWhoListFrame.WhoSearch = nil
+padA(function() whoBox:SetFocus() end)
+type("x")
+playerClick(key("ENTER"))
+check(#whoSearches == 1 and whoEnter == 0 and not kb:IsShown() and not whoBox:HasFocus() and key("ENTER").attrs.type == "macro",
+	"...its button not there: nothing pressed, not its own Enter either; the box lets go")
+LFGWhoListFrame.WhoSearch = whoButton
+-- (the keyboard staying open after Enter: the search, still never its own Enter)
+GamepadKeyboardDB.closeOnEnter = false
+padA(function() whoBox:SetFocus() end)
+playerClick(key("ENTER"))
+check(#whoSearches == 2 and whoEnter == 0 and kb:IsShown() and whoBox:HasFocus(), "...set to stay open after Enter: searched, still typing")
+GamepadKeyboardDB.closeOnEnter = nil
+kb:SmartNavigationCloseHandler(); whoBox:ClearFocus(); whoBox.text = ""; manager:FrameHidden(LFGWhoListFrame)
+_G.WhoFrameEditBox, LFGWhoListFrame = nil, nil; poll()
+-- Its own Enter not run from here, nothing to press (the professions' small search): Enter just lets go.
+ProfessionsFrame = blizzardFrame(W.CreateFrame("Frame", "ProfessionsFrame", UIParent))
+ProfessionsFrame.CraftingPage = W.CreateFrame("Frame", nil, ProfessionsFrame)
+local miniSearch = blizzardBox(ProfessionsFrame.CraftingPage, { 400, 700 })
+ProfessionsFrame.CraftingPage.MinimizedSearchBox = miniSearch
+local miniEnter = 0
+miniSearch.scripts.OnEnterPressed = function() miniEnter = miniEnter + 1 end -- (picks a result: SmartNavigation)
+manager:FrameShown(ProfessionsFrame)
+for _, stay in ipairs({ false, true }) do
+	if stay then GamepadKeyboardDB.closeOnEnter = false end
+	padA(function() miniSearch:SetFocus() end)
+	type("bolt")
+	playerClick(key("ENTER")); poll()
+	check(miniEnter == 0 and not miniSearch:HasFocus() and miniSearch:GetText():find("bolt", 1, true) and kb:IsShown() == stay,
+		"the professions' small search: Enter lets go of typing, not the box's own Enter" .. (stay and " (set to stay open: the keyboard stays)" or ""))
+	kb:SmartNavigationCloseHandler(); poll()
+end
+GamepadKeyboardDB.closeOnEnter = nil
+manager:FrameHidden(ProfessionsFrame); ProfessionsFrame = nil; poll()
+-- A currency transfer's amount: numbers; its own Enter.
+CurrencyTransferMenu = blizzardFrame(W.CreateFrame("Frame", "CurrencyTransferMenu", UIParent))
+CurrencyTransferMenu.Content = W.CreateFrame("Frame", nil, CurrencyTransferMenu)
+CurrencyTransferMenu.Content.AmountSelector = W.CreateFrame("Frame", nil, CurrencyTransferMenu.Content)
+local amount = blizzardBox(CurrencyTransferMenu.Content.AmountSelector, { 400, 700 }); amount:SetNumeric(true)
+CurrencyTransferMenu.Content.AmountSelector.InputBox = amount
+local amountEnter = 0
+amount.scripts.OnEnterPressed = function(self) amountEnter = amountEnter + 1; self:ClearFocus() end
+manager:FrameShown(CurrencyTransferMenu)
+padA(function() amount:SetFocus() end)
+check(kb:IsShown() and key("1") and not key("q"), "a currency transfer's amount: the numpad")
+type("250")
+playerClick(key("ENTER"))
+check(amount:GetText() == "250" and amountEnter == 1 and not kb:IsShown(), "...Enter: the box's own Enter")
+amount.text = ""; manager:FrameHidden(CurrencyTransferMenu); CurrencyTransferMenu = nil; poll()
+-- A Blizzard box not looked through (the quest log's search): not opened, and said why.
+QuestScrollFrame = blizzardFrame(W.CreateFrame("Frame", "QuestScrollFrame", UIParent))
+QuestScrollFrame.SearchBox = blizzardBox(QuestScrollFrame, { 400, 700 })
+manager:FrameShown(QuestScrollFrame)
+local notesBeforeQuest = #world.printed
+padA(function() QuestScrollFrame.SearchBox:SetFocus() end)
+check(not kb:IsShown() and #world.printed == notesBeforeQuest + 1 and world.printed[#world.printed]:find("the game's own text box", 1, true),
+	"the quest log's search (Blizzard's, not looked through): no keyboard, and a note why")
+QuestScrollFrame.SearchBox:ClearFocus(); manager:FrameHidden(QuestScrollFrame); QuestScrollFrame = nil; poll()
 -- Another addon's box of numbers: its numbers too; a text box after it: letters again.
 local addonNumbers = numberBox(nil, UIParent, { 400, 500 })
 padA(function() addonNumbers:SetFocus() end)
