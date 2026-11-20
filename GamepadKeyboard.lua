@@ -306,12 +306,11 @@ local function LastTell()
 	end
 end
 
-local CHAT_TYPES = { -- then the whispers (see ChatTypesToUse)
-	{ chatType = "SAY", command = "/s" },
-	{ chatType = "PARTY", command = "/p", available = function() return IsInGroup(LE_PARTY_CATEGORY_HOME) end },
-	{ chatType = "RAID", command = "/ra", available = function() return IsInRaid(LE_PARTY_CATEGORY_HOME) end },
-	{ chatType = "INSTANCE_CHAT", command = "/i", available = function() return IsInGroup(LE_PARTY_CATEGORY_INSTANCE) end },
-	{ chatType = "GUILD", command = "/g", available = function() return IsInGuild() end },
+-- Every chat, in a group or a guild or not - one you aren't in gets the game's own "you aren't in a party"
+-- (and the key never seems stuck on Say); then the whispers (see ChatTypesToUse).
+local CHAT_TYPES = {
+	{ chatType = "SAY" }, { chatType = "PARTY" }, { chatType = "RAID" }, { chatType = "INSTANCE_CHAT" },
+	{ chatType = "GUILD" }, { chatType = "OFFICER" }, { chatType = "YELL" },
 };
 local CHAT_LABELS = {
 	SAY = "Say", PARTY = "Party", RAID = "Raid", INSTANCE_CHAT = "Instance", GUILD = "Guild", OFFICER = "Officer",
@@ -475,7 +474,28 @@ local function BoxLine()
 	end
 end
 
+-- Over chat, the line's chat heads it - "Guild:", "To Bob:" - in the chat's colour, as Blizzard's chat box
+-- heads its own.
+local function UpdateChatHeader()
+	local header = keyboard.ChatHeader;
+	local label = isChat and target and (ChatLabel() .. ":") or nil;
+	local info = label and ChatTypeInfo
+		and ChatTypeInfo[chat.chatType == "CHANNEL" and ("CHANNEL" .. tostring(chat.channelTarget)) or chat.chatType];
+	local r, g, b = info and info.r or 1, info and info.g or 0.82, info and info.b or 0;
+	header:SetText(label or "");
+	header:SetTextColor(r, g, b);
+	header:SetShown(label ~= nil);
+	keyboard.Preview:ClearAllPoints();
+	if label then
+		keyboard.Preview:SetPoint("TOPLEFT", header, "TOPRIGHT", 6, 0);
+	else
+		keyboard.Preview:SetPoint("TOPLEFT", 16, -32);
+	end
+	keyboard.Preview:SetPoint("TOPRIGHT", -16, -32);
+end
+
 local function UpdatePreview()
+	UpdateChatHeader();
 	local boxLine = BoxLine();
 	if boxLine then
 		keyboard.Preview:SetText(boxLine .. BOX_LINE_HINT);
@@ -629,9 +649,7 @@ end
 local function ChatTypesToUse()
 	local list = {};
 	for _, entry in ipairs(CHAT_TYPES) do
-		if not entry.available or entry.available() then
-			list[#list + 1] = entry;
-		end
+		list[#list + 1] = entry;
 	end
 	local lastTell, lastTellType = LastTell();
 	if whisperedTo and whisperedTo.target ~= lastTell then
@@ -1018,6 +1036,8 @@ local function CreateKeyboard()
 	keyboard.Title = keyboard:CreateFontString(nil, "OVERLAY", "GameFontNormal");
 	keyboard.Title:SetPoint("TOP", 0, -5);
 	keyboard.Title:SetText("Keyboard");
+	keyboard.ChatHeader = keyboard:CreateFontString(nil, "OVERLAY", "GameFontHighlight");
+	keyboard.ChatHeader:SetPoint("TOPLEFT", 16, -32);
 	keyboard.Preview = keyboard:CreateFontString(nil, "OVERLAY", "GameFontHighlight");
 	keyboard.Preview:SetPoint("TOPLEFT", 16, -32);
 	keyboard.Preview:SetPoint("TOPRIGHT", -16, -32);

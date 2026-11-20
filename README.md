@@ -46,9 +46,11 @@ Enter, then A sends it"), the chat key switches its chat too (and its header), a
 to the chat box, where the chat's own A sends it. Typing starts the keyboard's own line instead.
 
 The **chat key** (bottom row, beside Space) shows who you're talking to - Say, Party, To Bob, /2 - and
-steps on to the next chat type there is to use: Say, Party (in a group), Raid (in a raid), Instance (in an
-instance group), Guild (in a guild), the whisper the chat was in (opened from a name, or started while the
-keyboard was up), and a reply to whoever whispered you last. What you've typed stays.
+steps through every chat: Say, Party, Raid, Instance, Guild, Officer, Yell, the whisper the chat was in
+(opened from a name, or started while the keyboard was up), and a reply to whoever whispered you last.
+All of them, in a group or a guild or not: sending to one you aren't in gets the game's own "you aren't in
+a party". What you've typed stays. The line is headed by its chat - "Guild:", "To Bob:" - in the chat's
+colour, as the chat box heads its own.
 
 Not **Battle.net whispers**, nor a chat with no slash command (voice text): Blizzard sends those only from
 its own chat box, so the keyboard doesn't open for them (it says so, once) - a real keyboard types there as
@@ -244,7 +246,7 @@ multiplied by its scale when kept and divided when used - so it stays put at any
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 336 checks, with the focus manager and
+`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 328 checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, every write into the chat box
 from the addon flagged, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
@@ -287,8 +289,9 @@ focus, the menu dial's button already up), and real-keyboard keys delivered as t
 - [ ] Mail text (several lines): Enter / holding A start a new line; the preview shows "line 2 of 2".
 - [ ] Edit Mode: the keyboard shows with a blue selection, under Edit Mode's panels; dragging moves it, the
       mouse wheel resizes it; after Edit Mode it opens there at that size.
-- [ ] The chat key: in a group it goes Say -> Party (-> Raid / Instance / Guild / To <last whisperer>) and
-      back to Say, the key's label changes with it, the text stays, and Enter sends to that chat.
+- [ ] The chat key goes Say -> Party -> Raid -> Instance -> Guild -> Officer -> Yell (-> To <last whisperer>)
+      and back to Say, in a group or not; the key's label and the line's coloured header ("Party:") change
+      with it, the text stays, and Enter sends to that chat (one you aren't in: the game's own message).
 - [ ] LT / RT move between the keyboard and other open windows.
 - [ ] The keyboard can be dragged and reopens where it was left; for chat it doesn't cover the chat window.
 - [ ] After B, Chat on the menu dial (or A on a name box) brings the keyboard back.

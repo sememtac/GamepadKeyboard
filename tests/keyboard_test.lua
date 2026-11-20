@@ -216,7 +216,8 @@ local function openChat(chatType, tellTarget, channelTarget)
 	chatBox.attrs.chatType, chatBox.attrs.tellTarget, chatBox.attrs.channelTarget, chatBox.deactivated = chatType, tellTarget, channelTarget, nil
 	menuDialChat()
 end
-ChatTypeInfo = { SAY = { sticky = 1 }, PARTY = { sticky = 1 }, CHANNEL = { sticky = 1 }, WHISPER = { sticky = 0 } }
+ChatTypeInfo = { SAY = { sticky = 1, r = 1, g = 1, b = 1 }, PARTY = { sticky = 1, r = 0.667, g = 0.667, b = 1 }, CHANNEL = { sticky = 1 },
+	WHISPER = { sticky = 0 } }
 local poisoned = {}
 local function poison(name) return function() poisoned[#poisoned + 1] = name; error(name .. " must not be called by the keyboard") end end
 for _, name in ipairs({ "SendMessage", "SendText", "ClearChat", "Deactivate", "ParseText" }) do chatBox[name] = poison("editBox:" .. name) end
@@ -489,6 +490,18 @@ local function key(k)
 	for _, f in ipairs(W.frames) do if f.parent == keyboard() and f.key == k and f.shown then return f end end
 end
 local function type(s) for c in s:gmatch(".") do playerClick(key(c == " " and "SPACE" or c:lower())) end end
+-- The chat key pressed until it shows label; and what it steps through from where it is, round to there.
+local function chatTo(label)
+	for _ = 1, 15 do
+		if key("CHAT").text == label then return true end
+		playerClick(key("CHAT"))
+	end
+end
+local function chatCycle()
+	local start, seen = key("CHAT").text, {}
+	repeat playerClick(key("CHAT")); seen[#seen + 1] = key("CHAT").text until key("CHAT").text == start or #seen > 15
+	return table.concat(seen, ",")
+end
 -- Done with chat: the keyboard's line dropped as a player would (RB to its end, X till it's empty, B - an
 -- unsent line would wait for the next chat), then the chat closed.
 local function endChat()
@@ -590,7 +603,7 @@ lastTell, lastTellType = "Bobby-Realm", "WHISPER"
 openChat("SAY"); poll()
 for _ = 1, 260 do playerClick(key("x")) end
 before = #macros
-playerClick(key("CHAT")); playerClick(key("ENTER"))
+chatTo("To Bobby"); playerClick(key("ENTER"))
 check(#macros == before and kb:IsShown() and world.printed[#world.printed]:find("too long", 1, true),
 	"switched to a whisper whose /w makes it too long: nothing sent, the keyboard stays, a note why")
 lastTell, lastTellType = nil, nil
@@ -644,7 +657,7 @@ check(preview() == "Hiy " .. CARET .. "o", "on the symbols page too (Space, Del)
 playerClick(key("LETTERS"))
 pad("PADLSHOULDER")
 playerClick(key("CHAT"))
-check(key("CHAT").text == "Say" and preview() == "Hiy" .. CARET .. " o", "the chat key keeps the cursor")
+check(key("CHAT").text == "Party" and preview() == "Hiy" .. CARET .. " o", "the chat key keeps the cursor")
 -- The controller UI binding X over the keyboard's while it's open: the keyboard's again.
 SetOverrideBindingClick(UIParent, true, "PAD3", "Blizzard_Other")
 check(boundTo("PAD3") == "CLICK GamepadKeyboardDelKey:LeftButton", "the controller UI binding X over it while open: bound again")
@@ -1312,32 +1325,20 @@ check(#world.printed == printedBefore + 1 and world.printed[#world.printed]:find
 -- ---- the chat key ------------------------------------------------------------------------------------------------
 openChat("SAY"); poll()
 local chatKey = key("CHAT")
-check(chatKey and chatKey.text == "Say", "chat: a chat key showing the chat type")
+check(chatKey and chatKey.text == "Say" and kb.ChatHeader.text == "Say:" and kb.ChatHeader.shown and kb.Preview.points[1][2] == kb.ChatHeader,
+	"chat: a chat key showing the chat, and the line headed by it (the line after the header)")
 type("hi")
-playerClick(chatKey)
-check(chatKey.text == "Say" and preview() == "Hi" .. CARET, "no group, no guild, nobody to reply to: Say is all there is")
-world.party, world.guild = true, true
+check(chatCycle() == "Party,Raid,Instance,Guild,Officer,Yell,Say" and preview() == "Hi" .. CARET,
+	"every chat, in a group or a guild or not (where you aren't, the game says so): Say, Party, Raid, Instance, Guild, Officer, Yell")
 lastTell, lastTellType = "Bob-Realm", "WHISPER"
+check(chatCycle() == "Party,Raid,Instance,Guild,Officer,Yell,To Bob,Say" and preview() == "Hi" .. CARET and #chatWrites == 0,
+	"...then a reply to whoever whispered last, and round to Say (the text kept, the chat box never touched)")
 playerClick(chatKey)
-check(chatKey.text == "Party" and preview() == "Hi" .. CARET, "in a party: Party next, the text kept")
-playerClick(chatKey)
-check(chatKey.text == "Guild" and preview() == "Hi" .. CARET, "...then Guild")
-playerClick(chatKey)
-check(chatKey.text == "To Bob" and preview() == "Hi" .. CARET, "...then a reply to whoever whispered last")
-playerClick(chatKey)
-check(chatKey.text == "Say" and preview() == "Hi" .. CARET and #chatWrites == 0, "...and round to Say (the chat box never touched)")
-playerClick(chatKey)
+check(chatKey.text == "Party" and kb.ChatHeader.text == "Party:" and kb.ChatHeader.textColor[3] == 1 and kb.ChatHeader.textColor[1] < 1,
+	"...the header follows, in the chat's colour (Party's blue)")
 playerClick(key("ENTER"))
-check(macros[#macros] == "/p Hi" and chatBox.attrs.stickyType == "PARTY", "Enter sends to the chat type picked")
+check(macros[#macros] == "/p Hi" and chatBox.attrs.stickyType == "PARTY", "Enter sends to the chat picked")
 poll()
-world.raid, world.instance = true, true
-openChat("SAY"); poll()
-playerClick(key("CHAT")); playerClick(key("CHAT"))
-check(key("CHAT").text == "Raid", "in a raid: Party, then Raid")
-playerClick(key("CHAT"))
-check(key("CHAT").text == "Instance", "...then Instance (an instance group)")
-endChat()
-world.raid, world.instance = false, false
 openChat("SAY"); poll()
 playerClick(key("CHAT"))
 check(key("CHAT").text == "Party" and preview() == CARET and key("SHIFT").locked,
@@ -1347,67 +1348,54 @@ playerClick(key("ENTER"))
 check(macros[#macros] == "/p Go", "...and what's typed then goes there")
 poll()
 openChat("SAY"); poll()
+chatTo("Yell"); type("hey"); playerClick(key("ENTER"))
+check(macros[#macros] == "/y Hey", "Yell: /y")
+poll()
+openChat("SAY"); poll()
 playerClick(key("SYMBOLS"))
 check(key("CHAT") ~= nil and key("CHAT").text == "Say", "the symbols page has it too")
 playerClick(key("/")); playerClick(key("LETTERS")); type("g ")
 check(preview() == "/g " .. CARET and key("CHAT").text == "Say", "a typed /g stays in the line (it's sent as typed)")
 endChat()
 openChat("WHISPER", "Alice"); poll()
-check(key("CHAT").text == "To Alice", "a whisper shows who to")
+check(key("CHAT").text == "To Alice" and kb.ChatHeader.text == "To Alice:", "a whisper shows who to (the key and the header)")
 type("hey")
-playerClick(key("CHAT"))
-check(key("CHAT").text == "To Bob", "...from a whisper to someone else, on to the reply to whoever whispered last")
-playerClick(key("CHAT"))
-check(key("CHAT").text == "Say", "...then round to Say")
-playerClick(key("CHAT")); playerClick(key("CHAT"))
-check(key("CHAT").text == "Guild", "(Party, Guild)")
-playerClick(key("CHAT"))
-check(key("CHAT").text == "To Alice" and preview() == "Hey" .. CARET, "...and back to the whisper the chat was opened in: offered, the text kept")
+check(chatCycle() == "To Bob,Say,Party,Raid,Instance,Guild,Officer,Yell,To Alice" and preview() == "Hey" .. CARET,
+	"...from a whisper to someone else: the reply, every chat, and back to the whisper it was opened in (the text kept)")
 lastTell = "Alice"
-playerClick(key("CHAT")); playerClick(key("CHAT")); playerClick(key("CHAT")); playerClick(key("CHAT"))
-check(key("CHAT").text == "To Alice", "(round to Alice)")
-playerClick(key("CHAT"))
-check(key("CHAT").text == "Say", "she whispers meanwhile (the reply is to her now): offered once")
-playerClick(key("CHAT")); playerClick(key("CHAT")); playerClick(key("CHAT"))
+check(chatCycle() == "Say,Party,Raid,Instance,Guild,Officer,Yell,To Alice", "she whispers meanwhile (the reply is to her now): offered once")
 lastTell = "Bob-Realm"
 playerClick(key("ENTER"))
 check(macros[#macros] == "/w Alice Hey", "Enter sends it to her")
 endChat()
 openChat("WHISPER", "Bob-Realm"); poll()
-playerClick(key("CHAT"))
-check(key("CHAT").text == "Say", "the reply already picked: on to Say")
-playerClick(key("CHAT")); playerClick(key("CHAT")); playerClick(key("CHAT"))
-check(key("CHAT").text == "To Bob" and playerClick(key("CHAT")) == nil and key("CHAT").text == "Say",
-	"...the whisper and the reply to the same person: offered once")
+check(chatCycle() == "Say,Party,Raid,Instance,Guild,Officer,Yell,To Bob", "the whisper and the reply to the same person: offered once")
 endChat()
 -- A Battle.net whisperer to reply to: not offered (a macro line can't say it).
 lastTell, lastTellType = "|Kq7|k", "BN_WHISPER"
 openChat("SAY"); poll()
-playerClick(key("CHAT")); playerClick(key("CHAT")); playerClick(key("CHAT"))
-check(key("CHAT").text == "Say", "a Battle.net whisper to reply to: not offered (Say, Party, Guild, Say)")
+check(chatCycle() == "Party,Raid,Instance,Guild,Officer,Yell,Say", "a Battle.net whisper to reply to: not offered")
 endChat()
--- A whisper started in the chat box while the keyboard is up: the line goes there, and it's offered back after
--- other types.
+-- A whisper started in the chat box while the keyboard is up: the line goes there, and it's offered back.
 lastTell, lastTellType = nil, nil
 openChat("SAY"); poll()
-playerClick(key("CHAT")); playerClick(key("CHAT")); playerClick(key("CHAT"))
-check(key("CHAT").text == "Say", "a new chat: no whisper from before offered (Say, Party, Guild, Say)")
+check(chatCycle() == "Party,Raid,Instance,Guild,Officer,Yell,Say", "a new chat: no whisper from before offered")
 chatBox.attrs.chatType, chatBox.attrs.tellTarget = "WHISPER", "Carol" -- (a name's menu, "/w Carol " on a real keyboard)
 poll()
-check(key("CHAT").text == "To Carol", "a whisper started in the chat box meanwhile: the line goes to her")
-playerClick(key("CHAT")); playerClick(key("CHAT"))
-check(key("CHAT").text == "Party", "(Say, Party)")
-playerClick(key("CHAT")); playerClick(key("CHAT"))
-check(key("CHAT").text == "To Carol", "...and she's offered back too")
+check(key("CHAT").text == "To Carol" and kb.ChatHeader.text == "To Carol:", "a whisper started in the chat box meanwhile: the line goes to her")
+check(chatCycle() == "Say,Party,Raid,Instance,Guild,Officer,Yell,To Carol", "...and she's offered back too")
 lastTell, lastTellType = "Bob-Realm", "WHISPER"
 endChat()
 openChat("WHISPER", "Christopherson"); poll()
 check(key("CHAT").text == "To Christop..", "a long name is cut to fit")
 endChat()
 openChat("CHANNEL", nil, 2); poll()
-check(key("CHAT").text == "/2", "a channel shows its number")
+check(key("CHAT").text == "/2" and kb.ChatHeader.text == "/2:", "a channel shows its number")
 endChat()
-world.party, world.guild = false, false
+padA(function() outside:SetFocus() end)
+check(kb:IsShown() and not kb.ChatHeader.shown and kb.Preview.points[1][1] == "TOPLEFT" and kb.Preview.points[1][2] == 16,
+	"another text box: no header, the line where it always is")
+kb:SmartNavigationCloseHandler(); outside:ClearFocus(); poll()
 lastTell, lastTellType = nil, nil
 
 -- ---- any other text box: a window with a name box ----------------------------------------------------------------
