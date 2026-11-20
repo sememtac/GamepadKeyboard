@@ -1262,7 +1262,9 @@ local REVIEWED_BOXES = {
 -- quantity and price boxes, which have no names. The quantity's handler acts only on typing on a real
 -- keyboard; a price change redraws the form (deposit, total, the Create Auction button; its undercut hint
 -- never shows in the controller UI); Enter only drops focus. Create Auction reads the boxes' numbers itself
--- (GetNumber), so the post - a call only Blizzard's UI may make - stays Blizzard's. Not the buy forms.
+-- (GetNumber), so the post - a call only Blizzard's UI may make - stays Blizzard's. And a single item's bid
+-- (gold, silver, copper): Bid reads the boxes' text itself, then Blizzard's own confirmation. Not a stack's
+-- buy quantity (see SpecialNote).
 local function IsAuctionBox(box)
 	if AuctionSearchButton(box) then
 		return true;
@@ -1270,6 +1272,11 @@ local function IsAuctionBox(box)
 	local auctionHouse = AuctionHouseFrame;
 	if not auctionHouse then
 		return false;
+	end
+	local bidFrame = auctionHouse.ItemBuyFrame and auctionHouse.ItemBuyFrame.BidFrame;
+	local bid = bidFrame and bidFrame.BidAmount;
+	if bid and (box == bid.gold or box == bid.silver or box == bid.copper) then
+		return true;
 	end
 	for _, sellFrame in ipairs({ auctionHouse.ItemSellFrame, auctionHouse.CommoditiesSellFrame }) do
 		if sellFrame.QuantityInput and box == sellFrame.QuantityInput.InputBox then
@@ -1322,6 +1329,18 @@ end
 -- Said once a box (a chat: once a chat type): why the keyboard didn't come.
 local toldAbout = {};
 
+-- Boxes with a reason of their own, and a way that works with the controller.
+local function SpecialNote(box)
+	local buyFrame = AuctionHouseFrame and AuctionHouseFrame.CommoditiesBuyFrame;
+	local buyQuantity = buyFrame and buyFrame.BuyDisplay and buyFrame.BuyDisplay.QuantityInput;
+	if buyQuantity and box == buyQuantity.InputBox then
+		-- Its price is worked out only on a real keyboard's typing, and Buy then checks it against the
+		-- server's (typed from here: "price unavailable"); working it out from here would make the purchase,
+		-- a call only Blizzard's UI may make, the addon's.
+		return "not for the Auction House's buy quantity: its price only follows a real keyboard's typing. Pick the amount from the price list instead (A on a row buys up to it).";
+	end
+end
+
 local function TellCantType(box)
 	if box.chatFrame then
 		local chatType = tostring(ChatFor(box).chatType);
@@ -1332,7 +1351,9 @@ local function TellCantType(box)
 		end
 	elseif not toldAbout[box] then
 		toldAbout[box] = true;
-		if MadeByBlizzard(box) then
+		if SpecialNote(box) then
+			Print(SpecialNote(box));
+		elseif MadeByBlizzard(box) then
 			Print(("not for %s: it's the game's own text box, and typing into it from an addon gets the game to block the addon. A real keyboard types there as usual."):format(
 				box:GetName() or "this text box"));
 		else

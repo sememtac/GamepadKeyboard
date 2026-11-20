@@ -1247,7 +1247,16 @@ local function sellForm(key)
 	return form
 end
 local itemSell, stackSell = sellForm("ItemSellFrame"), sellForm("CommoditiesSellFrame")
-local buyQuantity = numberBox(nil, AuctionHouseFrame, { 400, 700 }) -- (the commodities buy form's)
+AuctionHouseFrame.CommoditiesBuyFrame = W.CreateFrame("Frame", nil, AuctionHouseFrame)
+AuctionHouseFrame.CommoditiesBuyFrame.BuyDisplay = W.CreateFrame("Frame", nil, AuctionHouseFrame.CommoditiesBuyFrame)
+AuctionHouseFrame.CommoditiesBuyFrame.BuyDisplay.QuantityInput = W.CreateFrame("Frame", nil, AuctionHouseFrame.CommoditiesBuyFrame.BuyDisplay)
+local buyQuantity = numberBox(nil, AuctionHouseFrame.CommoditiesBuyFrame.BuyDisplay.QuantityInput, { 400, 700 })
+AuctionHouseFrame.CommoditiesBuyFrame.BuyDisplay.QuantityInput.InputBox = buyQuantity
+AuctionHouseFrame.ItemBuyFrame = W.CreateFrame("Frame", nil, AuctionHouseFrame)
+AuctionHouseFrame.ItemBuyFrame.BidFrame = W.CreateFrame("Frame", nil, AuctionHouseFrame.ItemBuyFrame)
+local bidAmount = W.CreateFrame("Frame", nil, AuctionHouseFrame.ItemBuyFrame.BidFrame)
+AuctionHouseFrame.ItemBuyFrame.BidFrame.BidAmount = bidAmount
+for _, coin in ipairs({ "gold", "silver", "copper" }) do bidAmount[coin] = numberBox(nil, bidAmount, { 400, 650 }) end
 manager:FrameShown(AuctionHouseFrame)
 for label, box in pairs({ ["an item's price (gold)"] = itemSell.PriceInput.MoneyInputFrame.GoldBox,
 	["an item's price (copper)"] = itemSell.PriceInput.MoneyInputFrame.CopperBox, ["an item's quantity"] = itemSell.QuantityInput.InputBox,
@@ -1257,8 +1266,16 @@ for label, box in pairs({ ["an item's price (gold)"] = itemSell.PriceInput.Money
 	check(kb:IsShown() and key("1") and not key("q") and box:GetText() == "42", "auction house, " .. label .. ": the keyboard, on its numbers")
 	kb:SmartNavigationCloseHandler(); box:ClearFocus(); box.text = ""; poll()
 end
+for _, coin in ipairs({ "gold", "silver", "copper" }) do
+	padA(function() bidAmount[coin]:SetFocus() end)
+	type("7")
+	check(kb:IsShown() and key("1") and bidAmount[coin]:GetText() == "7", "auction house, a single item's bid (" .. coin .. "): the keyboard, on its numbers")
+	kb:SmartNavigationCloseHandler(); bidAmount[coin]:ClearFocus(); bidAmount[coin].text = ""; poll()
+end
+local notesBeforeBuy = #world.printed
 padA(function() buyQuantity:SetFocus() end)
-check(not kb:IsShown(), "...but not the auction house's other boxes (the buy form's quantity: not looked through)")
+check(not kb:IsShown() and #world.printed == notesBeforeBuy + 1 and world.printed[#world.printed]:find("price list", 1, true),
+	"...but not a stack's buy quantity (its price only follows real typing): a note pointing to the price list")
 buyQuantity:ClearFocus(); poll()
 -- Its search: typed in; Enter presses Search (securely), never the box's own Enter.
 AuctionHouseFrame.SearchBar = W.CreateFrame("Frame", nil, AuctionHouseFrame)
