@@ -298,10 +298,10 @@ function W.CreateFrame(kind, name, parent, template)
 	if hasTemplate(template, "FocusFramesInterfaceTemplate") then
 		for _, key in ipairs({ "LeftJumpHint", "RightJumpHint", "FocusJumpHint" }) do
 			f[key] = W.CreateFrame("Frame", nil, f, "InputIconTextureFrameTemplate")
-			f[key].shown = false
+			f[key].shown, f[key].level = false, 515
 		end
 		local glow = W.CreateFrame("Frame", nil, f)
-		glow.shown = false
+		glow.shown, glow.level = false, 505 -- (FocusEffectTemplates.xml: frameLevel 505, the jump hints 515)
 		glow.OnLoad = function(self) self.loadedWithLayout = rawget(f, "layoutType") end
 		f.FrameGlow = glow
 	end

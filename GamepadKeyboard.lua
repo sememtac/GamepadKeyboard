@@ -758,7 +758,9 @@ end
 local function OpenChatList(chatKey)
 	local list = ChatTypesToUse();
 	local frame = keyboard.ChatList;
-	frame:SetFrameLevel(keyboard:GetFrameLevel() + 10); -- (over the keys)
+	-- Over the keys, and over the controller UI's focus glow round the keyboard (a frame level of its own,
+	-- far above the keyboard's) where the list goes past the keyboard's edge.
+	frame:SetFrameLevel(math.max(keyboard:GetFrameLevel() + 10, keyboard.FrameGlow and keyboard.FrameGlow:GetFrameLevel() + 1 or 0));
 	frame:SetSize(chatKey.width + 12, #list * CHOICE_STEP - (CHOICE_STEP - CHOICE_HEIGHT) + 12);
 	frame:ClearAllPoints();
 	frame:SetPoint("BOTTOMLEFT", chatKey, "TOPLEFT", -6, GAP); -- up from the key (kept on the screen)

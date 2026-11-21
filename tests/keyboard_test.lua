@@ -1459,9 +1459,10 @@ playerClick(chatKey)
 check(kb.ChatList.shown and choices[1].shown and choices[8].shown and not choices[9].shown and navCurrent == choices[1]
 	and navTargets[#navTargets] == false and navTargets[#navTargets - 1] == choices[1],
 	"the list opens with the D-pad's cursor on the line's chat (Say); the keyboard's target cleared after")
-check(kb.ChatList.level > kb:GetFrameLevel() and choices[1].level > kb.ChatList.level and choices[1].parent == kb and kb.ChatList.mouse
+check(kb.ChatList.level > kb:GetFrameLevel() and kb.ChatList.level > kb.FrameGlow.level and choices[1].level > kb.ChatList.level
+	and choices[1].parent == kb and kb.ChatList.mouse
 	and choices[1].points[1][2] == kb.ChatList and kb.ChatList.points[1][2] == chatKey and kb.ChatList.clamped,
-	"...over the keys, up from the chat key, on the screen (the mouse doesn't reach the keys through it); its buttons the keyboard's own")
+	"...over the keys and the focus glow round the keyboard, up from the chat key, on the screen (the mouse doesn't reach the keys through it); its buttons the keyboard's own")
 check(overrides[choices[1]].down == choices[2] and overrides[choices[1]].up == choices[8] and overrides[choices[8]].down == choices[1]
 	and overrides[choices[2]].left == true and overrides[choices[2]].right == true,
 	"...up / down along it, round at the ends; left / right nowhere")
