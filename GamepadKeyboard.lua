@@ -1395,7 +1395,9 @@ end
 local function SetTarget(box)
 	target = box;
 	local parent = box:GetParent();
-	lastBoxName = (box:GetName() or "an unnamed text box") .. " in " .. tostring(parent and parent:GetName() or "an unnamed frame");
+	local reviewed = not box:GetName() and Reviewed(box); -- (one of Blizzard's without a name: where it is)
+	lastBoxName = reviewed and table.concat(reviewed.box, ".")
+		or (box:GetName() or "an unnamed text box") .. " in " .. tostring(parent and parent:GetName() or "an unnamed frame");
 	chatHadFocus = nil; -- a new box: no focus seen yet
 	whisperedTo = nil; -- (the box's own, if it's in one, at the next preview)
 	HideChatList();

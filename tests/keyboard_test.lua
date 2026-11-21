@@ -1299,6 +1299,9 @@ ahSearch.scripts.OnEnterPressed = function() boxEnter = boxEnter + 1 end -- (Sta
 padA(function() ahSearch:SetFocus() end)
 check(kb:IsShown() and key("q") and key("SPACE"), "the auction house's search box: the keyboard, letters")
 type("linen")
+W.fireEvent("ADDON_ACTION_FORBIDDEN", "GamepadKeyboard", "SomeCall()")
+check(world.printed[#world.printed]:find("Last typed into: AuctionHouseFrame.SearchBar.SearchBox.", 1, true),
+	"(a block report names an unnamed Blizzard box by where it is: " .. world.printed[#world.printed] .. ")")
 before = #macros
 playerClick(key("ENTER"))
 check(#searches == 1 and searches[1].text == "linen" and searches[1].secure and boxEnter == 0 and #macros == before,
