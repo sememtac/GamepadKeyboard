@@ -68,6 +68,14 @@ S.handedBack = nil; -- the box the keyboard just went back to: not opened for ag
 S.closing = false; -- while closing hands the controller back (which focuses the box again)
 S.previewing = false; -- shown in Edit Mode to be placed, not typing anywhere
 
+-- The keyboard on screen; over a chat box (with one to type into).
+local function IsOpen()
+	return S.keyboard and S.keyboard:IsShown();
+end
+local function OverChat()
+	return S.isChat and S.target;
+end
+
 local KEY_WIDTH, KEY_HEIGHT, GAP = 36, 30, 4;
 
 local BACK, SHIFT, SYMBOLS, LETTERS, SPACE, ENTER, CHAT = "BACK", "SHIFT", "SYMBOLS", "LETTERS", "SPACE", "ENTER", "CHAT";
@@ -360,9 +368,8 @@ local function IsWhisper(chatType)
 	return chatType == "WHISPER" or chatType == "BN_WHISPER";
 end
 
--- A chat's name (the line's, unless another's given): "Guild", "To Bob", "/2".
+-- A chat's name: "Guild", "To Bob", "/2".
 local function ChatLabel(to)
-	to = to or S.chat;
 	local chatType = to.chatType;
 	if IsWhisper(chatType) then
 		local name = tostring(to.tellTarget or ""):gsub("%-.*$", "");
@@ -492,10 +499,10 @@ local LINE_FORMAT = "|cff808080   line %d of %d|r";
 -- The chat key follows the chat (its label), and a whisper the chat is in is remembered - when the keyboard
 -- changes it, and each frame for a change from elsewhere (a menu's Whisper).
 local function UpdateChatKey()
-	if not (S.isChat and S.target) then
+	if not OverChat() then
 		return;
 	end
-	local label = ChatLabel();
+	local label = ChatLabel(S.chat);
 	for _, chatKey in ipairs(S.keyboard.ChatKeys) do
 		if chatKey:GetText() ~= label then
 			chatKey:SetText(label);
@@ -514,7 +521,7 @@ end
 local BOX_LINE_HINT = "|cff808080   in the chat box: Enter, then A sends it|r";
 
 local function BoxLine()
-	if S.isChat and S.target and S.text == "" then
+	if OverChat() and S.text == "" then
 		local boxText = S.target:GetText() or "";
 		if boxText ~= "" then
 			return boxText;
@@ -524,12 +531,21 @@ end
 
 -- Over chat, the line's chat heads it - "Guild:", "To Bob:" - in the chat's colour, as Blizzard's chat box
 -- heads its own.
+-- A chat's colour, as Blizzard's chat shows it (a channel's by its number); nothing for one without.
+local function ChatColor(to)
+	local info = ChatTypeInfo and ChatTypeInfo[to.chatType == "CHANNEL" and ("CHANNEL" .. tostring(to.channelTarget)) or to.chatType];
+	if info and info.r then
+		return info.r, info.g, info.b;
+	end
+end
+
 local function UpdateChatHeader()
 	local header = S.keyboard.ChatHeader;
-	local label = S.isChat and S.target and (ChatLabel() .. ":") or nil;
-	local info = label and ChatTypeInfo
-		and ChatTypeInfo[S.chat.chatType == "CHANNEL" and ("CHANNEL" .. tostring(S.chat.channelTarget)) or S.chat.chatType];
-	local r, g, b = info and info.r or 1, info and info.g or 0.82, info and info.b or 0;
+	local label = OverChat() and (ChatLabel(S.chat) .. ":") or nil;
+	local r, g, b = 1, 0.82, 0;
+	if label and ChatColor(S.chat) then
+		r, g, b = ChatColor(S.chat);
+	end
 	header:SetText(label or "");
 	header:SetTextColor(r, g, b);
 	header:SetShown(label ~= nil);
@@ -595,7 +611,7 @@ local function UpdateLabels()
 	end
 end
 
-local function SetText(newText, newCursor)
+local function SetTyped(newText, newCursor)
 	S.text = newText;
 	S.cursor = newCursor or Utf8Length(S.text);
 	if S.target and not S.isChat then
@@ -623,7 +639,7 @@ end
 local function DeleteBack()
 	if S.cursor > 0 then
 		local before, after = Split(S.text, S.cursor);
-		SetText(select(1, Split(before, S.cursor - 1)) .. after, S.cursor - 1);
+		SetTyped(select(1, Split(before, S.cursor - 1)) .. after, S.cursor - 1);
 	end
 end
 
@@ -642,13 +658,13 @@ local function Insert(characters)
 			return;
 		end
 	end
-	SetText(newText, S.cursor + Utf8Length(characters));
+	SetTyped(newText, S.cursor + Utf8Length(characters));
 end
 
 local function ChooseSuggestion(button)
 	if S.target and button.suggestion then
 		local name = Ambiguate(button.suggestion, "none");
-		SetText((S.target.command and (S.target.command .. " ") or "") .. name .. (S.target.addSpaceToAutoComplete and " " or ""));
+		SetTyped((S.target.command and (S.target.command .. " ") or "") .. name .. (S.target.addSpaceToAutoComplete and " " or ""));
 	end
 end
 
@@ -743,14 +759,14 @@ local CHOICE_HEIGHT, CHOICE_STEP = 26, 28;
 
 -- A chat's name in its colour (in the text: a button's own colour changes with its highlight).
 local function ChatChoiceText(to)
-	local info = ChatTypeInfo and ChatTypeInfo[to.chatType];
-	if not (info and info.r) then
+	local r, g, b = ChatColor(to);
+	if not r then
 		return ChatLabel(to);
 	end
 	local function Hex(value)
 		return math.floor(value * 255 + 0.5);
 	end
-	return ("|cff%02x%02x%02x%s|r"):format(Hex(info.r), Hex(info.g), Hex(info.b), ChatLabel(to));
+	return ("|cff%02x%02x%02x%s|r"):format(Hex(r), Hex(g), Hex(b), ChatLabel(to));
 end
 
 local function VisibleChatKey()
@@ -811,14 +827,14 @@ local function OpenChatList(chatKey)
 end
 
 local function PickChat(choice)
-	if S.picking and choice.entry and S.isChat and S.target then
+	if S.picking and choice.entry and OverChat() then
 		SetChat(choice.entry);
 	end
 	CloseChatList();
 end
 
 local function Close()
-	if S.keyboard and S.keyboard:IsShown() then
+	if IsOpen() then
 		S.keyboard:Hide();
 	end
 end
@@ -862,7 +878,7 @@ local function Press(button)
 		Layout();
 		RefreshNavigation();
 	elseif key == CHAT then
-		if S.isChat and S.target then
+		if OverChat() then
 			OpenChatList(button);
 		end
 	else
@@ -1026,7 +1042,7 @@ local function EnterPostClick(button)
 			return;
 		end
 		if sentLine == "" and S.text ~= "" then
-			Print(("too long to send to %s - a chat line is at most %d letters with its command."):format(ChatLabel(), MAX_LINE));
+			Print(("too long to send to %s - a chat line is at most %d letters with its command."):format(ChatLabel(S.chat), MAX_LINE));
 			return;
 		end
 		local sent = sentLine ~= "" and S.text:sub(1, 1) ~= "/";
@@ -1209,7 +1225,7 @@ local function UpdateShortcuts()
 		return;
 	end
 	local manager = GetManager();
-	if S.keyboard and S.keyboard:IsShown() and manager and manager.focusedFrame == S.keyboard then
+	if IsOpen() and manager and manager.focusedFrame == S.keyboard then
 		if not shortcutsBound then
 			BindShortcuts();
 		end
@@ -1391,7 +1407,7 @@ local function CreateKeyboard()
 	-- box again - not a request for the keyboard - and the box isn't opened for again until focus moves
 	-- elsewhere or it's asked for again. A chat line not sent waits for next time.
 	S.keyboard:SetScript("OnHide", function()
-		if S.isChat and S.target then
+		if OverChat() then
 			KeepChatDraft();
 		end
 		S.handedBack = S.target;
@@ -1604,7 +1620,7 @@ local function ShouldOpen(box)
 		and not InCombatLockdown()
 		and UsesGamepadUI()
 		and GetManager() ~= nil
-		and not (S.keyboard and S.keyboard:IsShown())
+		and not IsOpen()
 		and box:IsObjectType("EditBox")
 		and box:IsVisible()) then
 		return false;
@@ -1672,7 +1688,7 @@ hooksecurefunc(EditBoxMethods(), "SetFocus", Requested);
 -- the auction house took it as a search.
 if ChatFrameUtil and ChatFrameUtil.InsertLink and ChatFrameUtil.GetActiveWindow then
 	hooksecurefunc(ChatFrameUtil, "InsertLink", function(link)
-		if S.keyboard and S.keyboard:IsShown() and S.isChat and S.target and type(link) == "string" and link ~= ""
+		if IsOpen() and OverChat() and type(link) == "string" and link ~= ""
 			and not ChatFrameUtil.GetActiveWindow() and not (AuctionHouseFrame and AuctionHouseFrame:IsVisible()) then
 			Insert(link);
 		end
@@ -1711,7 +1727,7 @@ end
 
 -- A change of layout shows at once if the keyboard is up on its letters.
 local function ApplyLayout()
-	if S.keyboard and S.keyboard:IsShown() and S.page ~= "symbols" and S.page ~= "numbers" and not InCombatLockdown() then
+	if IsOpen() and S.page ~= "symbols" and S.page ~= "numbers" and not InCombatLockdown() then
 		S.page = LettersPage();
 		Layout();
 		UpdateLabels();
@@ -1721,7 +1737,7 @@ end
 
 -- A change of size shows at once if the keyboard is up.
 local function ApplySize()
-	if S.keyboard and S.keyboard:IsShown() and not InCombatLockdown() then
+	if IsOpen() and not InCombatLockdown() then
 		Position(S.target);
 	end
 end
@@ -1978,10 +1994,10 @@ watcher:SetScript("OnUpdate", function()
 	end
 	-- Its box gone (the window closed, Enter hid it; for chat its window - the chat box itself can hide as it
 	-- empties): the keyboard goes too.
-	if S.keyboard and S.keyboard:IsShown() and S.target and not (S.isChat and S.target.chatFrame or S.target):IsVisible() then
+	if IsOpen() and S.target and not (S.isChat and S.target.chatFrame or S.target):IsVisible() then
 		Close();
 	end
-	if S.keyboard and S.keyboard:IsShown() and S.isChat and S.target then
+	if IsOpen() and OverChat() then
 		-- A whisper started elsewhere while the keyboard is up (a name's menu, the reply key): the line goes
 		-- there. Other changes are the chat box's own (emptied as it lost focus: back to its usual chat).
 		local boxChat = ChatOf(S.target);
@@ -2000,7 +2016,7 @@ watcher:SetScript("OnUpdate", function()
 			end
 		end
 	end
-	if S.keyboard and S.keyboard:IsShown() and S.isChat and S.target then
+	if IsOpen() and OverChat() then
 		UpdateChatKey();
 		local boxText = S.target:GetText() or "";
 		if boxText ~= seenBoxText then
@@ -2018,7 +2034,7 @@ watcher:SetScript("OnUpdate", function()
 	end
 	-- Its box changed under it (the mail sent and its boxes cleared, a box's Enter, a link put in): the
 	-- preview, cursor and name keys follow at once, not at the next key.
-	if S.keyboard and S.keyboard:IsShown() and S.target then
+	if IsOpen() and S.target then
 		local before = S.text;
 		Sync();
 		if S.text ~= before then
@@ -2030,7 +2046,7 @@ watcher:SetScript("OnUpdate", function()
 		return;
 	end
 	lastFocus = focus;
-	if S.keyboard and S.keyboard:IsShown() then
+	if IsOpen() then
 		if focus and focus ~= S.target then
 			SwitchTo(focus);
 		end
