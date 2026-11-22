@@ -14,6 +14,10 @@
   charter's name; the Black Market's bid; an Auction House item's bid. Where the game's own Enter would
   get the addon blocked (Who, the Finders, crafting orders' search, the guild charter), Enter presses the
   window's button instead - Search, Purchase - as you would.
+- Fixed: after the keyboard sent a whisper, the chat box went back to whispering without the name - the next
+  chat could whisper someone else, or the keyboard stopped opening on chat. It now keeps who (or which
+  channel) the line went to, as the game's own Enter does. A line left unsent stays in its chat unless a
+  whisper is started after it.
 - The Auction House's buy quantity (a stack) says why it doesn't open, and what to do instead: A on a row
   of the price list buys up to it. So does the Filter list's level range: tick Usable Only instead.
 

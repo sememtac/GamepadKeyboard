@@ -366,6 +366,11 @@ local function ChatOf(box)
 		channelTarget = box:GetAttribute("channelTarget") };
 end
 
+-- A chat told from another by its type and who it's to (a change in the box: a whisper started there).
+local function ChatKey(to)
+	return tostring(to.chatType) .. " " .. tostring(to.tellTarget);
+end
+
 -- The macro line that says a message in a chat (a command - "/dance" - runs as typed); nil if no slash
 -- command can say it. Not Battle.net whispers: their name can be a protected string, which a macro line
 -- can't be trusted to keep - and Blizzard sends them only from its own chat box.
@@ -392,11 +397,12 @@ local function Sayable(to)
 	return ChatLine("x", to) ~= nil;
 end
 
--- The chat the keyboard opens in over a chat box: an unsent line's own, unless a whisper was just started
--- (a name's menu, the reply key) - else the box's.
+-- The chat the keyboard opens in over a chat box: an unsent line's own, unless a whisper was started in the
+-- box since the line was left (a name's menu, the reply key) - not the box still in, or sticking to, the
+-- whisper it had then - else the box's.
 local function ChatFor(box)
 	local boxChat = ChatOf(box);
-	if chatDraft and not IsWhisper(boxChat.chatType) then
+	if chatDraft and not (IsWhisper(boxChat.chatType) and not chatDraft.boxChats[ChatKey(boxChat)]) then
 		return chatDraft.chat;
 	end
 	return boxChat;
@@ -803,7 +809,16 @@ end
 -- A chat line closed unsent (B, combat, a real keyboard taking over, another box) waits for the next time the
 -- keyboard opens on chat, in its chat; an empty one leaves nothing.
 local function KeepChatDraft()
-	chatDraft = text ~= "" and { text = text, chat = chat } or nil;
+	if text == "" or not target then
+		chatDraft = nil;
+		return;
+	end
+	-- (and the chat box's own chat as the keyboard last took it in, and as it goes back to when it closes: its
+	-- sticky type)
+	chatDraft = { text = text, chat = chat, boxChats = {
+		[seenChat] = true,
+		[ChatKey({ chatType = target:GetAttribute("stickyType"), tellTarget = target:GetAttribute("tellTarget") })] = true,
+	} };
 end
 
 local function Press(button)
@@ -996,7 +1011,14 @@ local function EnterPostClick(button)
 		end
 		local sent = sentLine ~= "" and text:sub(1, 1) ~= "/";
 		if sent and ChatTypeInfo and ChatTypeInfo[chat.chatType] and ChatTypeInfo[chat.chatType].sticky == 1 then
+			-- As Blizzard's own send leaves the box: the chat it goes back to, and who or which channel that is
+			-- (going back, it takes only the type - a whisper with someone else's name, or none, otherwise).
 			box:SetAttribute("stickyType", chat.chatType);
+			if chat.chatType == "WHISPER" then
+				box:SetAttribute("tellTarget", chat.tellTarget);
+			elseif chat.chatType == "CHANNEL" then
+				box:SetAttribute("channelTarget", chat.channelTarget);
+			end
 		end
 		text, cursor = "", 0; -- sent: no line to keep
 		if not Setting("closeOnEnter") then
@@ -1410,7 +1432,7 @@ local function SetTarget(box)
 		text = chatDraft and chatDraft.text or "";
 		chatDraft = nil;
 		local boxChat = ChatOf(box);
-		seenChat = tostring(boxChat.chatType) .. " " .. tostring(boxChat.tellTarget);
+		seenChat = ChatKey(boxChat);
 	else
 		lastNamesBox = box;
 		text = box:GetText() or "";
@@ -1941,17 +1963,17 @@ watcher:SetScript("OnUpdate", function()
 		-- A whisper started elsewhere while the keyboard is up (a name's menu, the reply key): the line goes
 		-- there. Other changes are the chat box's own (emptied as it lost focus: back to its usual chat).
 		local boxChat = ChatOf(target);
-		local seen = tostring(boxChat.chatType) .. " " .. tostring(boxChat.tellTarget);
+		local seen = ChatKey(boxChat);
 		if seen ~= seenChat then
-			seenChat = seen;
-			if IsWhisper(boxChat.chatType) and boxChat.tellTarget then
-				if Sayable(boxChat) then
+			if IsWhisper(boxChat.chatType) and boxChat.tellTarget and not Sayable(boxChat) then
+				local box = target;
+				Close(); -- (the line waits, in its own chat: this one is new to it)
+				TellCantType(box);
+			else
+				seenChat = seen;
+				if IsWhisper(boxChat.chatType) and boxChat.tellTarget then
 					chat = boxChat;
 					UpdatePreview();
-				else
-					local box = target;
-					Close(); -- (the line waits)
-					TellCantType(box);
 				end
 			end
 		end

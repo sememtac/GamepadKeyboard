@@ -150,7 +150,8 @@ function SmartNavigation_AddJumpNavigationOverride(button, direction, target)
 end
 
 -- The chat: a chat frame with gamepad focus puts typing focus in its box; losing typing focus while empty
--- deactivates the box, which resets its chat type to the sticky one (ChatFrameEditBoxMixin:Deactivate).
+-- deactivates the box, which resets its chat type to the sticky one (ChatFrameEditBoxMixin:Deactivate ->
+-- ResetChatTypeToSticky: the type only - who a whisper was to stays as it was).
 local chatFrame = W.CreateFrame("Frame", "ChatFrame1", UIParent)
 local chatBox = W.CreateFrame("EditBox", "ChatFrame1EditBox", chatFrame)
 chatBox.chatFrame = chatFrame
@@ -160,7 +161,7 @@ chatBox.attrs.chatType, chatBox.attrs.stickyType = "SAY", "SAY"
 local classicChat = false -- the "classic" chat style: Deactivate hides the box, ActivateChat shows it
 chatBox.scripts.OnEditFocusLost = function(self)
 	if self:GetText() == "" then
-		self.attrs.chatType, self.attrs.tellTarget, self.deactivated = self.attrs.stickyType, nil, true
+		self.attrs.chatType, self.deactivated = self.attrs.stickyType, true
 		if classicChat then self:Hide() end
 	end
 end
@@ -218,12 +219,14 @@ function chatFrame:SetGamepadFocus() GamepadMode.FrameControlsManager:FrameShown
 -- A menu's Whisper (ChatFrameUtil.SendTellWithMessage): "/w Name " into the chat box, parsed (it ends empty).
 local function blizzardSendTell(name) chatBox:SetText("/w " .. name .. " ") end
 local menuDialChat -- set below
+-- Chat opened in a chat (the box's usual one: its sticky type too - a box doesn't sit in Say sticky to a whisper).
 local function openChat(chatType, tellTarget, channelTarget)
 	chatBox.attrs.chatType, chatBox.attrs.tellTarget, chatBox.attrs.channelTarget, chatBox.deactivated = chatType, tellTarget, channelTarget, nil
+	chatBox.attrs.stickyType = chatType
 	menuDialChat()
 end
 ChatTypeInfo = { SAY = { sticky = 1, r = 1, g = 1, b = 1 }, PARTY = { sticky = 1, r = 0.667, g = 0.667, b = 1 }, CHANNEL = { sticky = 1 },
-	WHISPER = { sticky = 0 } }
+	WHISPER = { sticky = 1 }, YELL = { sticky = 0 } } -- (ChatTypeInfoConstants.lua)
 local poisoned = {}
 local function poison(name) return function() poisoned[#poisoned + 1] = name; error(name .. " must not be called by the keyboard") end end
 for _, name in ipairs({ "SendMessage", "SendText", "ClearChat", "Deactivate", "ParseText" }) do chatBox[name] = poison("editBox:" .. name) end
@@ -1591,6 +1594,60 @@ playerClick(key("CHAT"))
 check(navCurrent == kb.ChatChoices[1], "...its list: the cursor on Say (a channel isn't in it)")
 kb:SmartNavigationCloseHandler()
 endChat()
+-- A whisper picked from the list and sent: the chat box sticks to it as Blizzard's own send leaves it, who
+-- it's to with it (closing, the box goes back to its sticky type only).
+lastTell, lastTellType = "Bob-Realm", "WHISPER"
+openChat("SAY"); poll()
+chatTo("To Bob"); type("yo"); playerClick(key("ENTER"))
+check(macros[#macros] == "/w Bob-Realm Yo" and chatBox.attrs.stickyType == "WHISPER" and chatBox.attrs.tellTarget == "Bob-Realm",
+	"a whisper picked from the list and sent: the chat box sticks to it, with who it's to (" .. tostring(macros[#macros]) .. ")")
+poll()
+menuDialChat(); poll()
+check(kb:IsShown() and key("CHAT").text == "To Bob", "...the next chat opens to Bob again, as after Blizzard's own send")
+-- Then Say picked, a line typed and left: it waits in Say (the box still sticking to Bob is no new whisper).
+chatTo("Say"); type("later"); kb:SmartNavigationCloseHandler(); poll()
+chatBox:ClearFocus(); manager:FrameHidden(chatFrame); poll()
+menuDialChat(); poll()
+check(kb:IsShown() and key("CHAT").text == "Say" and preview() == "Later" .. CARET, "...a line left unsent in Say after that: back in Say, not moved to Bob")
+-- A whisper started in the chat box since (a name's Whisper) still takes it.
+kb:SmartNavigationCloseHandler(); poll()
+chatBox:ClearFocus(); manager:FrameHidden(chatFrame); poll()
+mouseClick(function() chatFrame:SetGamepadFocus() end); blizzardSendTell("Carol"); poll()
+menuDialChat(); poll()
+check(kb:IsShown() and key("CHAT").text == "To Carol" and preview() == "Later" .. CARET, "...but a whisper started since: the line goes to her")
+endChat()
+-- A whisper started while the keyboard is up is taken in; Say picked after it and the line left (B, back on
+-- the chat box, still in that whisper): back in Say - that whisper isn't new to the line.
+openChat("SAY"); poll()
+blizzardSendTell("Alice"); poll()
+check(key("CHAT").text == "To Alice", "(a name's Whisper while it's up: taken in)")
+chatTo("Say"); type("not her"); kb:SmartNavigationCloseHandler(); poll()
+check(chatBox.attrs.chatType == "WHISPER" and chatBox.attrs.tellTarget == "Alice", "(B: back on the chat box, still whispering her)")
+menuDialChat(); poll()
+check(kb:IsShown() and key("CHAT").text == "Say" and preview() == "Not her" .. CARET,
+	"...Say picked after a whisper was taken in, the line left: back in Say, not to her")
+endChat()
+-- The box in Say but sticking to a whisper (a real keyboard's /s after one): closing, it goes back to the
+-- whisper - which isn't new either.
+openChat("SAY"); chatBox.attrs.stickyType, chatBox.attrs.tellTarget = "WHISPER", "Bob-Realm"; poll()
+type("soon"); kb:SmartNavigationCloseHandler(); poll()
+chatBox:ClearFocus(); manager:FrameHidden(chatFrame); poll()
+check(chatBox.attrs.chatType == "WHISPER", "(closed: the box back to its whisper)")
+menuDialChat(); poll()
+check(kb:IsShown() and key("CHAT").text == "Say" and preview() == "Soon" .. CARET, "...a line left in Say then: still in Say")
+endChat()
+-- A channel line sent: the box sticks to that channel (its number with it).
+openChat("CHANNEL", nil, 1); poll()
+type("a"); kb:SmartNavigationCloseHandler(); poll()
+chatBox:ClearFocus(); manager:FrameHidden(chatFrame); poll()
+openChat("CHANNEL", nil, 2); poll()
+check(key("CHAT").text == "/1", "(a line waiting in channel 1, the box on channel 2: the line's own)")
+playerClick(key("ENTER"))
+check(macros[#macros] == "/1 A" and chatBox.attrs.stickyType == "CHANNEL" and chatBox.attrs.channelTarget == 1,
+	"a channel line sent: the box sticks to that channel, its number with it")
+poll()
+chatBox.attrs.stickyType, chatBox.attrs.chatType, chatBox.attrs.tellTarget, chatBox.attrs.channelTarget = "SAY", "SAY", nil, nil
+lastTell, lastTellType = nil, nil
 padA(function() outside:SetFocus() end)
 check(kb:IsShown() and not kb.ChatHeader.shown and kb.Preview.points[1][1] == "TOPLEFT" and kb.Preview.points[1][2] == 16,
 	"another text box: no header, the line where it always is")
