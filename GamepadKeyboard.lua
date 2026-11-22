@@ -46,6 +46,8 @@ local ADDON_NAME, ns = ...;
 -- (read at each use: never copied into a local that would keep an old value).
 local S = {};
 ns.S = S;
+S.cursor = 0; -- characters before the cursor
+S.text = "";
 S.isChat = false;
 S.target = nil; -- the text box being typed into
 S.keyboard = nil;
@@ -114,8 +116,6 @@ local chatDraft; -- a chat line closed unsent: { text, chat } - back the next ti
 local whisperedTo; -- the whisper this chat was in while the keyboard was up: { chatType, target }
 local lastNamesBox; -- the last box typed into that isn't chat (for /gk names)
 local lastBoxName; -- the last box typed into (for a report if the game blocks the addon)
-local text = "";
-local cursor = 0; -- characters before the cursor
 local shift = false;
 local handedBack; -- the box the keyboard just went back to: not opened for again until focus moves on
 local closing = false; -- while closing hands the controller back (which focuses the box again)
@@ -463,11 +463,11 @@ end
 
 local function UpdateSuggestions()
 	local names = {};
-	if suggesting and S.target and text ~= "" then
+	if suggesting and S.target and S.text ~= "" then
 		-- Protected: a lookup that fails leaves no names, never a key press half done (and /gk names says why).
-		local ok, results = pcall(C_AutoComplete.GetAutoCompleteResults, text, MAX_SUGGESTIONS + 1, cursor, true, unpack(S.target.autoCompleteParams));
+		local ok, results = pcall(C_AutoComplete.GetAutoCompleteResults, S.text, MAX_SUGGESTIONS + 1, S.cursor, true, unpack(S.target.autoCompleteParams));
 		results = ok and type(results) == "table" and results or {};
-		if not (#results == 1 and results[1].name == text) then -- the name already typed: nothing to pick
+		if not (#results == 1 and results[1].name == S.text) then -- the name already typed: nothing to pick
 			for i = 1, math.min(#results, MAX_SUGGESTIONS) do
 				names[i] = results[i].name;
 			end
@@ -514,7 +514,7 @@ end
 local BOX_LINE_HINT = "|cff808080   in the chat box: Enter, then A sends it|r";
 
 local function BoxLine()
-	if S.isChat and S.target and text == "" then
+	if S.isChat and S.target and S.text == "" then
 		local boxText = S.target:GetText() or "";
 		if boxText ~= "" then
 			return boxText;
@@ -551,14 +551,14 @@ local function UpdatePreview()
 		UpdateSuggestions();
 		return;
 	end
-	local before, after = Split(text, cursor);
+	local before, after = Split(S.text, S.cursor);
 	local lineBefore, lineAfter = before:match("[^\n]*$"), after:match("^[^\n]*");
 	local column, length = Utf8Length(lineBefore), Utf8Length(lineBefore) + Utf8Length(lineAfter);
 	local first = math.max(0, math.min(column - PREVIEW_LENGTH + 8, length - PREVIEW_LENGTH));
 	local last = math.min(length, first + PREVIEW_LENGTH);
 	local shown = (first > 0 and "..." or "") .. select(2, Split(lineBefore, first)) .. CARET
 		.. select(1, Split(lineAfter, last - column)) .. (last < length and "..." or "");
-	local _, lines = text:gsub("\n", "");
+	local _, lines = S.text:gsub("\n", "");
 	if lines > 0 then
 		local _, line = before:gsub("\n", "");
 		shown = shown .. LINE_FORMAT:format(line + 1, lines + 1);
@@ -596,12 +596,12 @@ local function UpdateLabels()
 end
 
 local function SetText(newText, newCursor)
-	text = newText;
-	cursor = newCursor or Utf8Length(text);
+	S.text = newText;
+	S.cursor = newCursor or Utf8Length(S.text);
 	if S.target and not S.isChat then
-		S.target:SetText(text);
-		text = S.target:GetText() or ""; -- the box may change it
-		cursor = math.min(cursor, Utf8Length(text));
+		S.target:SetText(S.text);
+		S.text = S.target:GetText() or ""; -- the box may change it
+		S.cursor = math.min(S.cursor, Utf8Length(S.text));
 	end
 	UpdatePreview();
 end
@@ -613,22 +613,22 @@ local function Sync()
 		return;
 	end
 	local current = S.target and S.target:GetText() or "";
-	if current ~= text then
-		text = current;
-		cursor = Utf8Length(text);
+	if current ~= S.text then
+		S.text = current;
+		S.cursor = Utf8Length(S.text);
 	end
 end
 
 -- The character before the cursor.
 local function DeleteBack()
-	if cursor > 0 then
-		local before, after = Split(text, cursor);
-		SetText(select(1, Split(before, cursor - 1)) .. after, cursor - 1);
+	if S.cursor > 0 then
+		local before, after = Split(S.text, S.cursor);
+		SetText(select(1, Split(before, S.cursor - 1)) .. after, S.cursor - 1);
 	end
 end
 
 local function Insert(characters)
-	local before, after = Split(text, cursor);
+	local before, after = Split(S.text, S.cursor);
 	local newText = before .. characters .. after;
 	if S.isChat then
 		if #(ChatLine(newText, chat) or newText) > MAX_LINE then
@@ -642,7 +642,7 @@ local function Insert(characters)
 			return;
 		end
 	end
-	SetText(newText, cursor + Utf8Length(characters));
+	SetText(newText, S.cursor + Utf8Length(characters));
 end
 
 local function ChooseSuggestion(button)
@@ -655,7 +655,7 @@ end
 local function MoveCursor(step)
 	if S.target then
 		Sync();
-		cursor = math.max(0, math.min(Utf8Length(text), cursor + step));
+		S.cursor = math.max(0, math.min(Utf8Length(S.text), S.cursor + step));
 		UpdatePreview();
 	end
 end
@@ -826,13 +826,13 @@ end
 -- A chat line closed unsent (B, combat, a real keyboard taking over, another box) waits for the next time the
 -- keyboard opens on chat, in its chat; an empty one leaves nothing.
 local function KeepChatDraft()
-	if text == "" or not S.target then
+	if S.text == "" or not S.target then
 		chatDraft = nil;
 		return;
 	end
 	-- (and the chat box's own chat as the keyboard last took it in, and as it goes back to when it closes: its
 	-- sticky type)
-	chatDraft = { text = text, chat = chat, boxChats = {
+	chatDraft = { text = S.text, chat = chat, boxChats = {
 		[seenChat] = true,
 		[ChatKey({ chatType = S.target:GetAttribute("stickyType"), tellTarget = S.target:GetAttribute("tellTarget") })] = true,
 	} };
@@ -984,8 +984,8 @@ local function EnterPreClick(button)
 		return; -- closed in combat (its line was emptied after the last press)
 	end
 	local line;
-	if S.target and S.isChat and text ~= "" then
-		line = ChatLine(text, chat);
+	if S.target and S.isChat and S.text ~= "" then
+		line = ChatLine(S.text, chat);
 		if line and #line > MAX_LINE then
 			line = nil; -- (the chat key moved it to a longer whisper)
 		end
@@ -1017,7 +1017,7 @@ local function EnterPostClick(button)
 		return;
 	end
 	if overChat then
-		if sentLine == "" and text == "" and (box:GetText() or "") ~= "" then
+		if sentLine == "" and S.text == "" and (box:GetText() or "") ~= "" then
 			Close(); -- back on the chat box, its line still in it, in the chat the chat key picked
 			if not toldBoxLine then
 				toldBoxLine = true;
@@ -1025,11 +1025,11 @@ local function EnterPostClick(button)
 			end
 			return;
 		end
-		if sentLine == "" and text ~= "" then
+		if sentLine == "" and S.text ~= "" then
 			Print(("too long to send to %s - a chat line is at most %d letters with its command."):format(ChatLabel(), MAX_LINE));
 			return;
 		end
-		local sent = sentLine ~= "" and text:sub(1, 1) ~= "/";
+		local sent = sentLine ~= "" and S.text:sub(1, 1) ~= "/";
 		if sent and ChatTypeInfo and ChatTypeInfo[chat.chatType] and ChatTypeInfo[chat.chatType].sticky == 1 then
 			-- As Blizzard's own send leaves the box: the chat it goes back to, and who or which channel that is
 			-- (going back, it takes only the type - a whisper with someone else's name, or none, otherwise).
@@ -1040,7 +1040,7 @@ local function EnterPostClick(button)
 				box:SetAttribute("channelTarget", chat.channelTarget);
 			end
 		end
-		text, cursor = "", 0; -- sent: no line to keep
+		S.text, S.cursor = "", 0; -- sent: no line to keep
 		if not Setting("closeOnEnter") then
 			-- Staying open: the next line, in the same chat.
 			shift = Setting("chatCapital");
@@ -1451,17 +1451,17 @@ local function SetTarget(box)
 		-- The chat box empties and goes back to its usual chat as the controller moves to the keyboard; the
 		-- line and its chat stay here.
 		chat = ChatFor(box);
-		text = chatDraft and chatDraft.text or "";
+		S.text = chatDraft and chatDraft.text or "";
 		chatDraft = nil;
 		local boxChat = ChatOf(box);
 		seenChat = ChatKey(boxChat);
 	else
 		lastNamesBox = box;
-		text = box:GetText() or "";
+		S.text = box:GetText() or "";
 	end
-	cursor = Utf8Length(text);
+	S.cursor = Utf8Length(S.text);
 	page = box:IsNumeric() and "numbers" or LettersPage();
-	shift = S.isChat and text == "" and Setting("chatCapital");
+	shift = S.isChat and S.text == "" and Setting("chatCapital");
 end
 
 local function Open(box)
@@ -1933,7 +1933,7 @@ local function EditModeEnter()
 	end
 	previewing = true;
 	S.target, S.isChat, suggesting = nil, false, false;
-	text, cursor, page, shift = "", 0, LettersPage(), false;
+	S.text, S.cursor, page, shift = "", 0, LettersPage(), false;
 	S.keyboard:SetFrameStrata(EDIT_MODE_STRATA);
 	Position(nil);
 	S.keyboard:Show();
@@ -2019,9 +2019,9 @@ watcher:SetScript("OnUpdate", function()
 	-- Its box changed under it (the mail sent and its boxes cleared, a box's Enter, a link put in): the
 	-- preview, cursor and name keys follow at once, not at the next key.
 	if S.keyboard and S.keyboard:IsShown() and S.target then
-		local before = text;
+		local before = S.text;
 		Sync();
-		if text ~= before then
+		if S.text ~= before then
 			UpdatePreview();
 		end
 	end
