@@ -23,8 +23,8 @@
 -- A text box that looks names up as they're typed (the mail's To:) gets them as keys on a row of their own:
 -- Blizzard's list there only follows typing on a real keyboard and is picked with Tab or the mouse.
 --
--- For chat, a chat key steps through the chat types there are to use (Say, Party, Raid, Instance, Guild,
--- the whisper the chat was in, a reply to the last whisper): the line's chat, the text kept.
+-- For chat, a chat key opens a list of every chat (Say, Party, Raid, Instance, Guild, Officer, Yell, the
+-- whisper the chat was in, a reply to the last whisper): the line's chat, the text kept.
 --
 -- Whichever the player is using has the text box. The keyboard opens only when the controller asked for it
 -- (A on a text box, Chat on the menu dial) - not when a real keyboard opened the chat (Enter, /, reply) or
@@ -99,7 +99,8 @@ local suggestions = {}; -- the name keys
 -- Over chat the line and its chat are the keyboard's own: typed here, sent with a secure macro line, never
 -- written into Blizzard's chat box. What typing there sets off (its text-changed fields, the chat type's
 -- parsing) would run as this addon's doing and stay so - read by Blizzard's chat later, on into the
--- controller's bindings: blocked, blamed on the addon. The chat box is only read.
+-- controller's bindings: blocked, blamed on the addon. The chat box is only read - but for its chat
+-- attributes (what its own send reads; attributes come back clean).
 local chat = {}; -- the chat the line goes to: { chatType, tellTarget, channelTarget }
 local seenChat; -- the chat box's own chat type last frame (to see a whisper started elsewhere)
 local seenBoxText; -- the chat box's own text last frame (a line Blizzard put there: the preview follows)
@@ -164,10 +165,10 @@ end
 -- Blizzard's gamepad UI: the keyboard as a popup over the window the text box belongs to
 -------------------------------------------------------------------------------
 
--- Only through the functions Blizzard wraps for outside callers (HandlePopupShown / HandlePopupHide,
--- RefreshButtonGroups, jump overrides), only out of combat; our frames never set the fields its focus
--- manager reads directly. A refused call returns nothing, so the manager's list is checked, and the
--- registration is retried after combat.
+-- Only through the functions Blizzard wraps for outside callers (HandlePopupShown / HandlePopupHide /
+-- FrameHidden, RefreshButtonGroups, SetTargetButtonForFrame, jump overrides), only out of combat; our frames
+-- never set the fields its focus manager reads directly. A refused call returns nothing, so the manager's
+-- list is checked: a hide refused as combat started is retried after it; a show, the next time it opens.
 local registered = false;
 
 local function GetManager()
@@ -321,16 +322,16 @@ end
 -- Typing
 -------------------------------------------------------------------------------
 
--- The chat types the chat key steps through, each when it's there to use, and the slash command that
--- switches to it. Reply: a whisper to whoever whispered last (Blizzard's own getter, which only reads).
+-- The chats the chat key's list offers. Reply: a whisper to whoever whispered last (Blizzard's own getter,
+-- which only reads).
 local function LastTell()
 	if ChatFrameUtil and ChatFrameUtil.GetLastTellTarget then
 		return ChatFrameUtil.GetLastTellTarget();
 	end
 end
 
--- Every chat, in a group or a guild or not - one you aren't in gets the game's own "you aren't in a party"
--- (and the key never seems stuck on Say); then the whispers (see ChatTypesToUse).
+-- Every chat, in a group or a guild or not - one you aren't in gets the game's own "you aren't in a party";
+-- then the whispers (see ChatTypesToUse).
 local CHAT_TYPES = {
 	{ chatType = "SAY" }, { chatType = "PARTY" }, { chatType = "RAID" }, { chatType = "INSTANCE_CHAT" },
 	{ chatType = "GUILD" }, { chatType = "OFFICER" }, { chatType = "YELL" },
@@ -428,7 +429,8 @@ local function Split(s, characters)
 	return s:sub(1, at - 1), s:sub(at);
 end
 
--- The text with the cursor (a gold bar; "||" shows one "|"), at most 48 characters of it around the cursor.
+-- The text with the cursor (a gold bar; "||" shows one "|"), at most PREVIEW_LENGTH characters of it around
+-- the cursor.
 local CARET = "|cffffd100|||r"; -- "||" a "|", then "|r" ends the colour
 local PREVIEW_LENGTH = 48;
 
@@ -468,8 +470,8 @@ local function UpdateSuggestions()
 	end
 end
 
--- The line the cursor is on (a box can have several: "line 2 of 3" after it), at most 48 characters of it
--- around the cursor.
+-- The line the cursor is on (a box can have several: "line 2 of 3" after it), at most PREVIEW_LENGTH
+-- characters of it around the cursor.
 local LINE_FORMAT = "|cff808080   line %d of %d|r";
 
 -- The chat key follows the chat (its label), and a whisper the chat is in is remembered - when the keyboard
@@ -948,17 +950,17 @@ local function EnterButton(box)
 	end
 end
 
--- Before the secure macro action runs: the line to send (out of combat - the keyboard is closed in combat).
-
 -- What a press of a secure button (the Enter keys, A) does: a macro line (a chat line), or a press of a
--- Blizzard button (the auction house's Search). Blizzard's secure action runs either, so it's Blizzard's
--- doing; nothing (an empty macro) for anything else.
+-- Blizzard window's button (Search, Purchase: see REVIEWED). Blizzard's secure action runs either, so it's
+-- Blizzard's doing; nothing (an empty macro) for anything else.
 local function SetPressAction(button, line, clickButton)
 	button:SetAttribute("type", clickButton and "click" or "macro");
 	button:SetAttribute("clickbutton", clickButton);
 	button:SetAttribute("macrotext", line or "");
 end
 
+-- Before the secure action runs: the line to send, or the button to press (out of combat - the keyboard is
+-- closed in combat).
 local function EnterPreClick(button)
 	if InCombatLockdown() then
 		return; -- closed in combat (its line was emptied after the last press)
@@ -1118,7 +1120,8 @@ local function APostClick(button, _, down)
 	end
 end
 
--- The keys X and Y press (the first of each, on either page): a binding clicks a button by name.
+-- The keys X and Y press (the first Del and Space made, whatever page they're on - a binding clicks a
+-- button by name, shown or not, and the key does the same on any page).
 local SHORTCUT_KEYS = { [BACK] = "GamepadKeyboardDelKey", [SPACE] = "GamepadKeyboardSpaceKey" };
 local named = {};
 
