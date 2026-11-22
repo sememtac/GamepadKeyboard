@@ -46,22 +46,27 @@ local ADDON_NAME, ns = ...;
 -- (read at each use: never copied into a local that would keep an old value).
 local S = {};
 ns.S = S;
-S.closing = false; -- while closing hands the controller back (which focuses the box again)
-S.handedBack = nil; -- the box the keyboard just went back to: not opened for again until focus moves on
-S.previewing = false; -- shown in Edit Mode to be placed, not typing anywhere
-S.page = "qwerty"; -- a letters page (the layout's), "symbols", or "numbers" (a box of numbers only)
-S.picking = false; -- the chat list is open (see OpenChatList)
-S.shift = false;
-S.suggesting = false; -- the box looks names up (a row of name keys above the keys)
-S.chat = {}; -- the chat the line goes to: { chatType, tellTarget, channelTarget }
-S.chatDraft = nil; -- a chat line closed unsent: { text, chat } - back the next time the keyboard opens on chat
-S.seenChat = nil; -- the chat box's own chat type last frame (to see a whisper started elsewhere)
-S.whisperedTo = nil; -- the whisper this chat was in while the keyboard was up: { chatType, target }
-S.cursor = 0; -- characters before the cursor
-S.text = "";
-S.isChat = false;
+S.keyboard = nil; -- the keyboard's frame (made the first time it opens)
 S.target = nil; -- the text box being typed into
-S.keyboard = nil;
+S.isChat = false; -- ...a chat box
+S.suggesting = false; -- ...one that looks names up (a row of name keys above the keys)
+S.text = ""; -- the line
+S.cursor = 0; -- characters before the cursor
+S.page = "qwerty"; -- a letters page (the layout's), "symbols", or "numbers" (a box of numbers only)
+S.shift = false; -- the next letter a capital
+-- Over chat the line and its chat are the keyboard's own: typed here, sent with a secure macro line, never
+-- written into Blizzard's chat box. What typing there sets off (its text-changed fields, the chat type's
+-- parsing) would run as this addon's doing and stay so - read by Blizzard's chat later, on into the
+-- controller's bindings: blocked, blamed on the addon. The chat box is only read - but for its chat
+-- attributes (what its own send reads; attributes come back clean).
+S.chat = {}; -- the chat the line goes to: { chatType, tellTarget, channelTarget }
+S.seenChat = nil; -- the chat box's own chat last frame, as ChatKey gives it (to see a whisper started elsewhere)
+S.chatDraft = nil; -- a chat line closed unsent: { text, chat, boxChats } - back the next time it opens on chat
+S.whisperedTo = nil; -- the whisper this chat was in while the keyboard was up: { chatType, target }
+S.picking = false; -- the chat list is open (see OpenChatList)
+S.handedBack = nil; -- the box the keyboard just went back to: not opened for again until focus moves on
+S.closing = false; -- while closing hands the controller back (which focuses the box again)
+S.previewing = false; -- shown in Edit Mode to be placed, not typing anywhere
 
 local KEY_WIDTH, KEY_HEIGHT, GAP = 36, 30, 4;
 
@@ -112,11 +117,6 @@ local PAGE_KEY_UNITS = { numbers = 2 };
 
 local keys = {}; -- page -> rows of key buttons
 local suggestions = {}; -- the name keys
--- Over chat the line and its chat are the keyboard's own: typed here, sent with a secure macro line, never
--- written into Blizzard's chat box. What typing there sets off (its text-changed fields, the chat type's
--- parsing) would run as this addon's doing and stay so - read by Blizzard's chat later, on into the
--- controller's bindings: blocked, blamed on the addon. The chat box is only read - but for its chat
--- attributes (what its own send reads; attributes come back clean).
 local seenBoxText; -- the chat box's own text last frame (a line Blizzard put there: the preview follows)
 local toldBoxLine = false; -- said once: a line in the chat box is sent from there
 local lastNamesBox; -- the last box typed into that isn't chat (for /gk names)
