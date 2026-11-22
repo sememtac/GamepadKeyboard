@@ -47,6 +47,11 @@ local function RefusedInCombat(self)
 	if protected then W.blockedMessages = (W.blockedMessages or 0) + 1 end
 	return protected
 end
+-- ...nor move, size or re-level it.
+for _, method in ipairs({ "SetPoint", "ClearAllPoints", "SetAllPoints", "SetSize", "SetWidth", "SetHeight" }) do
+	local plain = Region[method]
+	Region[method] = function(self, ...) if not RefusedInCombat(self) then return plain(self, ...) end end
+end
 function Region:Show()
 	if RefusedInCombat(self) then return end
 	local was = self.shown
@@ -113,11 +118,11 @@ function Frame:CreateFontString() return W.region("FontString", self) end
 function Frame:CreateMaskTexture() return W.region("MaskTexture", self) end
 function Frame:SetFrameStrata(v) if not RefusedInCombat(self) then self.strata = v end end
 function Frame:GetFrameStrata() return self.strata or "MEDIUM" end
-function Frame:SetFrameLevel(v) self.level = v end
+function Frame:SetFrameLevel(v) if not RefusedInCombat(self) then self.level = v end end
 function Frame:GetFrameLevel() return self.level or 1 end
 function Frame:EnableMouse(v) self.mouse = v end
 function Frame:EnableMouseWheel(v) self.mouseWheel = v end
-function Frame:SetScale(v) self.scale = v end
+function Frame:SetScale(v) if not RefusedInCombat(self) then self.scale = v end end
 function Frame:GetScale() return self.scale or 1 end
 function Frame:EnableKeyboard(v) self.keyboardEnabled = v end
 -- Restricted in Forever (HasRestrictions; in combat at least). Treated as refused to addon code, the worst
@@ -127,7 +132,7 @@ function Frame:SetPropagateKeyboardInput(v)
 end
 function Frame:SetMovable(v) self.movable = v end
 function Frame:RegisterForDrag(...) self.drag = { ... } end
-function Frame:StartMoving() self.moving = true end
+function Frame:StartMoving() if not RefusedInCombat(self) then self.moving = true end end
 function Frame:StopMovingOrSizing() self.moving = false end
 function Frame:SetClampedToScreen(v) self.clamped = v end
 function Frame:SetToplevel(v) self.toplevel = v end
@@ -154,6 +159,11 @@ function Button:SetText(t) self.text = t end
 function Button:GetText() return self.text end
 function Button:Click(mouseButton)
 	if not self.enabled then return end -- a disabled button doesn't click, as in the game
+	-- A secure button clicked from an addon's code runs its secure action as the addon's: blocked in the game.
+	if self.protected and world and world.isAddonCaller and world.isAddonCaller(2) then
+		W.violations[#W.violations + 1] = "Click() on a secure button from the addon"
+		return
+	end
 	if self.kind == "CheckButton" then self.checked = not self.checked end
 	if self.scripts.OnClick then self.scripts.OnClick(self, mouseButton or "LeftButton", false) end
 end

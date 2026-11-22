@@ -97,6 +97,15 @@ local function boundTo(k)
 	return best and best.command
 end
 
+-- Blizzard's functions wrapped for outside callers (SecureHelper:WrapFunction, SetSecureValue): called from
+-- the addon in combat, the validation refuses them - nothing happens, "Interface action failed" (counted in
+-- W.blockedMessages). The test's own calls stand for Blizzard's.
+local function RefusedToAddon()
+	if world.combat and H.isAddonSource(H.callerSource(3)) then
+		W.blockedMessages = (W.blockedMessages or 0) + 1
+		return true
+	end
+end
 -- Blizzard's focus manager: popups return focus to the frame they opened over; focusing a frame unfocuses
 -- the previous one (UnfocusGamepad), FocusGamepad on the new one.
 local refuse = false
@@ -116,6 +125,7 @@ function manager:FrameShown(frame, isPopup)
 	return true
 end
 function manager:FrameHidden(frame)
+	if RefusedToAddon() then return end
 	local i = indexOf(frame); if not i then return false end
 	table.remove(self.shownFrames, i)
 	local returnFrame = self.popupReturnFrames[frame]; self.popupReturnFrames[frame] = nil
@@ -124,28 +134,30 @@ function manager:FrameHidden(frame)
 end
 function manager:HandlePopupShown(popup)
 	self.calls[#self.calls + 1] = "popupShown"
-	if refuse then return end
+	if refuse or RefusedToAddon() then return end
 	local returnFrame = self.focusedFrame
 	if self:FrameShown(popup, true) then self.popupReturnFrames[popup] = returnFrame end
 end
 function manager:HandlePopupHide(popup)
 	self.calls[#self.calls + 1] = "popupHide"
-	if refuse then return end
+	if refuse or RefusedToAddon() then return end
 	self:FrameHidden(popup)
 end
 GamepadMode = { FrameControlsManager = manager }
 local navCurrent -- the key the D-pad is on
 local navTargets = {} -- SetTargetButtonForFrame: each button the cursor was put on (false: the target cleared)
-SmartNavigation = { RefreshButtonGroups = function() end, GetCurrentButton = function() return navCurrent end,
-	SetTargetButtonForFrame = function(_, frame, button) -- (wrapped for outside callers; selects it in the active panel)
-		assert(not world.combat and frame == GamepadKeyboardFrame)
+SmartNavigation = { GetCurrentButton = function() return navCurrent end,
+	RefreshButtonGroups = function() RefusedToAddon() end,
+	SetTargetButtonForFrame = function(_, frame, button) -- (wrapped; selects it only in the panel that has the controller)
+		if RefusedToAddon() then return end
+		assert(frame == GamepadKeyboardFrame)
 		navTargets[#navTargets + 1] = button or false
-		if button then navCurrent = button end
+		if button and manager.focusedFrame == frame then navCurrent = button end
 	end }
 SMART_NAV_INPUT_DIRECTION = { UP = { dirKey = "up" }, DOWN = { dirKey = "down" }, LEFT = { dirKey = "left" }, RIGHT = { dirKey = "right" } }
 local overrides = {}
 function SmartNavigation_AddJumpNavigationOverride(button, direction, target)
-	assert(not world.combat)
+	if RefusedToAddon() then return end
 	overrides[button] = overrides[button] or {}
 	overrides[button][direction.dirKey] = target
 end
