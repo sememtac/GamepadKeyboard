@@ -1242,13 +1242,17 @@ local function BindShortcuts()
 	shortcutsBound = true;
 end
 
+-- A hold of A ended without its release reaching the keyboard (closed under it, the controller gone).
+local function ResetHold()
+	aDownAt = nil;
+	HoldRing(false);
+end
+
 local function ClearShortcuts()
 	if shortcutsBound and not InCombatLockdown() then
 		ClearOverrideBindings(S.keyboard);
 		shortcutsBound = false;
-		-- A held as the controller left: its release goes to the controller UI now, so the hold ends here.
-		aDownAt = nil;
-		HoldRing(false);
+		ResetHold(); -- (A held as the controller left: its release goes to the controller UI now)
 	end
 end
 
@@ -1315,6 +1319,121 @@ local function SavePosition()
 	DB().position = { point = point, relativePoint = relativePoint, x = x * scale, y = y * scale };
 end
 
+-- The keys of every page (each made once; Layout shows the page's).
+local function CreateKeys()
+	S.keyboard.ChatKeys = {};
+	S.keyboard.EnterKeys = {};
+	S.keyboard.ShiftKeys = {};
+	for name, layout in pairs(PAGES) do
+		keys[name] = {};
+		for r, rowKeys in ipairs(layout) do
+			local row = {};
+			for c, key in ipairs(rowKeys) do
+				row[c] = CreateKey(key, PAGE_KEY_UNITS[name]);
+				if key == SHIFT then
+					table.insert(S.keyboard.ShiftKeys, row[c]);
+				elseif key == CHAT then
+					table.insert(S.keyboard.ChatKeys, row[c]);
+				elseif key == ENTER then
+					table.insert(S.keyboard.EnterKeys, row[c]);
+				end
+			end
+			keys[name][r] = row;
+		end
+	end
+end
+
+-- The name keys (shown for a box that looks names up).
+local function CreateNameKeys()
+	for i = 1, MAX_SUGGESTIONS do
+		local button = CreateFrame("Button", nil, S.keyboard, "UIPanelButtonTemplate");
+		button:SetScript("OnClick", ChooseSuggestion);
+		button:Hide();
+		suggestions[i] = button;
+	end
+end
+
+local function CreateChatList()
+	-- The chat list: its backing (the mouse doesn't reach the keys through it), its buttons the keyboard's
+	-- own, as keys are, set on it.
+	S.keyboard.ChatList = CreateFrame("Frame", nil, S.keyboard, "TooltipBackdropTemplate");
+	S.keyboard.ChatList:EnableMouse(true);
+	S.keyboard.ChatList:SetClampedToScreen(true);
+	S.keyboard.ChatList:Hide();
+	for i = 1, #CHAT_TYPES + 2 do -- (and the two whispers: see ChatTypesToUse)
+		local choice = CreateFrame("Button", nil, S.keyboard, "UIPanelButtonTemplate");
+		choice:SetScript("OnClick", PickChat);
+		choice:Hide();
+		chatChoices[i] = choice;
+	end
+	S.keyboard.ChatChoices = chatChoices;
+end
+
+local function CreateAButton()
+	-- A presses this one (hidden, secure: Enter's macro line runs from it).
+	local aButton = CreateFrame("Button", "GamepadKeyboardAButton", S.keyboard, "SecureActionButtonTemplate");
+	aButton:RegisterForClicks("AnyDown", "AnyUp");
+	aButton:SetAttribute("type", "macro");
+	aButton:SetAttribute("useOnKeyDown", false);
+	aButton:SetAttribute("macrotext", "");
+	aButton:SetScript("PreClick", APreClick);
+	aButton:SetScript("PostClick", APostClick);
+	aButton:Hide();
+end
+
+local function CreateCursorButtons()
+	-- LB / RB press these (hidden: not keys to move to).
+	for name, step in pairs({ GamepadKeyboardCursorLeft = -1, GamepadKeyboardCursorRight = 1 }) do
+		local button = CreateFrame("Button", name, S.keyboard);
+		button:SetScript("OnClick", function()
+			MoveCursor(step);
+		end);
+		button:Hide();
+	end
+end
+
+-- The footer: what the controller's buttons do here.
+local function CreateFooter()
+	S.keyboard.Prompts = { CreatePrompt(GAMEPAD_FACE_BOTTOM, "Type") };
+	S.keyboard.HoldPrompt = CreatePrompt(GAMEPAD_FACE_BOTTOM, "Enter", S.keyboard.Prompts[1].text, true);
+	table.insert(S.keyboard.Prompts, S.keyboard.HoldPrompt);
+	for _, prompt in ipairs({
+		{ GAMEPAD_FACE_LEFT, "Del" }, { GAMEPAD_FACE_TOP, "Space" }, { GAMEPAD_FACE_RIGHT, "Back" },
+		{ GAMEPAD_SHOULDER_LEFT, "" }, { GAMEPAD_SHOULDER_RIGHT, "Cursor" },
+	}) do
+		table.insert(S.keyboard.Prompts, CreatePrompt(prompt[1], prompt[2], S.keyboard.Prompts[#S.keyboard.Prompts].text));
+	end
+end
+
+local function KeyboardShown()
+	Layout();
+	UpdateLabels();
+	UpdatePreview();
+	for _, prompt in ipairs(S.keyboard.Prompts) do
+		prompt.icon:SetShown(UsesGamepadUI());
+		prompt.text:SetShown(UsesGamepadUI());
+	end
+	if not S.previewing then
+		Register();
+		RefreshNavigation();
+	end
+end
+
+-- However it closes (Enter, B, Escape, combat): back to the window the box belongs to, which focuses the
+-- box again - not a request for the keyboard - and the box isn't opened for again until focus moves
+-- elsewhere or it's asked for again. A chat line not sent waits for next time.
+local function KeyboardHidden()
+	if OverChat() then
+		KeepChatDraft();
+	end
+	S.handedBack = S.target;
+	HideChatList();
+	ClearShortcuts();
+	ResetHold(); -- (a press the keyboard closed under isn't a hold next time)
+	Unregister();
+	S.target = nil;
+end
+
 local function CreateKeyboard()
 	S.keyboard = CreateFrame("Frame", "GamepadKeyboardFrame", UIParent, "BasicFrameTemplateWithInset, FocusFramesInterfaceTemplate");
 	S.keyboard:SetWidth(WidestRow() + 2 * EDGE); -- (its height is the page's: see Layout)
@@ -1339,76 +1458,12 @@ local function CreateKeyboard()
 	S.keyboard.Preview:SetPoint("TOPRIGHT", -LINE_INSET, -LINE_TOP);
 	S.keyboard.Preview:SetJustifyH("LEFT");
 
-	S.keyboard.ChatKeys = {};
-	S.keyboard.EnterKeys = {};
-	S.keyboard.ShiftKeys = {};
-	for name, layout in pairs(PAGES) do
-		keys[name] = {};
-		for r, rowKeys in ipairs(layout) do
-			local row = {};
-			for c, key in ipairs(rowKeys) do
-				row[c] = CreateKey(key, PAGE_KEY_UNITS[name]);
-				if key == SHIFT then
-					table.insert(S.keyboard.ShiftKeys, row[c]);
-				elseif key == CHAT then
-					table.insert(S.keyboard.ChatKeys, row[c]);
-				elseif key == ENTER then
-					table.insert(S.keyboard.EnterKeys, row[c]);
-				end
-			end
-			keys[name][r] = row;
-		end
-	end
-
-	for i = 1, MAX_SUGGESTIONS do
-		local button = CreateFrame("Button", nil, S.keyboard, "UIPanelButtonTemplate");
-		button:SetScript("OnClick", ChooseSuggestion);
-		button:Hide();
-		suggestions[i] = button;
-	end
-
-	-- The chat list: its backing (the mouse doesn't reach the keys through it), its buttons the keyboard's
-	-- own, as keys are, set on it.
-	S.keyboard.ChatList = CreateFrame("Frame", nil, S.keyboard, "TooltipBackdropTemplate");
-	S.keyboard.ChatList:EnableMouse(true);
-	S.keyboard.ChatList:SetClampedToScreen(true);
-	S.keyboard.ChatList:Hide();
-	for i = 1, #CHAT_TYPES + 2 do -- (and the two whispers: see ChatTypesToUse)
-		local choice = CreateFrame("Button", nil, S.keyboard, "UIPanelButtonTemplate");
-		choice:SetScript("OnClick", PickChat);
-		choice:Hide();
-		chatChoices[i] = choice;
-	end
-	S.keyboard.ChatChoices = chatChoices;
-
-	-- A presses this one (hidden, secure: Enter's macro line runs from it).
-	local aButton = CreateFrame("Button", "GamepadKeyboardAButton", S.keyboard, "SecureActionButtonTemplate");
-	aButton:RegisterForClicks("AnyDown", "AnyUp");
-	aButton:SetAttribute("type", "macro");
-	aButton:SetAttribute("useOnKeyDown", false);
-	aButton:SetAttribute("macrotext", "");
-	aButton:SetScript("PreClick", APreClick);
-	aButton:SetScript("PostClick", APostClick);
-	aButton:Hide();
-
-	-- LB / RB press these (hidden: not keys to move to).
-	for name, step in pairs({ GamepadKeyboardCursorLeft = -1, GamepadKeyboardCursorRight = 1 }) do
-		local button = CreateFrame("Button", name, S.keyboard);
-		button:SetScript("OnClick", function()
-			MoveCursor(step);
-		end);
-		button:Hide();
-	end
-
-	S.keyboard.Prompts = { CreatePrompt(GAMEPAD_FACE_BOTTOM, "Type") };
-	S.keyboard.HoldPrompt = CreatePrompt(GAMEPAD_FACE_BOTTOM, "Enter", S.keyboard.Prompts[1].text, true);
-	table.insert(S.keyboard.Prompts, S.keyboard.HoldPrompt);
-	for _, prompt in ipairs({
-		{ GAMEPAD_FACE_LEFT, "Del" }, { GAMEPAD_FACE_TOP, "Space" }, { GAMEPAD_FACE_RIGHT, "Back" },
-		{ GAMEPAD_SHOULDER_LEFT, "" }, { GAMEPAD_SHOULDER_RIGHT, "Cursor" },
-	}) do
-		table.insert(S.keyboard.Prompts, CreatePrompt(prompt[1], prompt[2], S.keyboard.Prompts[#S.keyboard.Prompts].text));
-	end
+	CreateKeys();
+	CreateNameKeys();
+	CreateChatList();
+	CreateAButton();
+	CreateCursorButtons();
+	CreateFooter();
 
 	S.keyboard.CloseButton:SetScript("OnClick", Close);
 	-- Controller B: go back, rather than Blizzard's gamepad UI pressing the close button.
@@ -1422,34 +1477,8 @@ local function CreateKeyboard()
 	end
 
 	SetUpFocusVisuals();
-	S.keyboard:SetScript("OnShow", function()
-		Layout();
-		UpdateLabels();
-		UpdatePreview();
-		for _, prompt in ipairs(S.keyboard.Prompts) do
-			prompt.icon:SetShown(UsesGamepadUI());
-			prompt.text:SetShown(UsesGamepadUI());
-		end
-		if not S.previewing then
-			Register();
-			RefreshNavigation();
-		end
-	end);
-	-- However it closes (Enter, B, Escape, combat): back to the window the box belongs to, which focuses the
-	-- box again - not a request for the keyboard - and the box isn't opened for again until focus moves
-	-- elsewhere or it's asked for again. A chat line not sent waits for next time.
-	S.keyboard:SetScript("OnHide", function()
-		if OverChat() then
-			KeepChatDraft();
-		end
-		S.handedBack = S.target;
-		HideChatList();
-		ClearShortcuts();
-		aDownAt = nil; -- a press the keyboard closed under isn't a hold next time
-		HoldRing(false);
-		Unregister();
-		S.target = nil;
-	end);
+	S.keyboard:SetScript("OnShow", KeyboardShown);
+	S.keyboard:SetScript("OnHide", KeyboardHidden);
 end
 
 -- The size first, then where it was put (kept in UIParent's units: a frame's offsets are in its own scaled
@@ -2015,22 +2044,15 @@ end
 -- One check per frame: what the player is pressing, the chat box taken back, and the keyboard opens when
 -- typing focus moves to a text box.
 local lastFocus;
-local watcher = CreateFrame("Frame");
-watcher:SetScript("OnUpdate", function()
-	if lastInput ~= "gamepad" and PadButtonDown() then
-		lastInput = "gamepad";
-	end
-	UpdateShortcuts();
-	UpdateHoldHint();
-	if S.previewing then
-		lastFocus = GetCurrentKeyBoardFocus(); -- in Edit Mode: not typing anywhere, and nothing to open after it
-		return;
-	end
+local function CloseIfBoxGone()
 	-- Its box gone (the window closed, Enter hid it; for chat its window - the chat box itself can hide as it
 	-- empties): the keyboard goes too.
 	if IsOpen() and S.target and not (S.isChat and S.target.chatFrame or S.target):IsVisible() then
 		Close();
 	end
+end
+
+local function FollowChatBoxChat()
 	if IsOpen() and OverChat() then
 		-- A whisper started elsewhere while the keyboard is up (a name's menu, the reply key): the line goes
 		-- there. Other changes are the chat box's own (emptied as it lost focus: back to its usual chat).
@@ -2050,6 +2072,9 @@ watcher:SetScript("OnUpdate", function()
 			end
 		end
 	end
+end
+
+local function FollowChatBox()
 	if IsOpen() and OverChat() then
 		UpdateChatKey();
 		local boxText = S.target:GetText() or "";
@@ -2066,6 +2091,9 @@ watcher:SetScript("OnUpdate", function()
 		end
 		chatHadFocus = hasFocus;
 	end
+end
+
+local function FollowBoxText()
 	-- Its box changed under it (the mail sent and its boxes cleared, a box's Enter, a link put in): the
 	-- preview, cursor and name keys follow at once, not at the next key.
 	if IsOpen() and S.target then
@@ -2075,6 +2103,10 @@ watcher:SetScript("OnUpdate", function()
 			UpdatePreview();
 		end
 	end
+end
+
+-- Typing focus moved: the keyboard follows it to another box, or opens for one asked for.
+local function FollowFocus()
 	local focus = GetCurrentKeyBoardFocus();
 	if focus == lastFocus then
 		return;
@@ -2092,6 +2124,24 @@ watcher:SetScript("OnUpdate", function()
 			Open(focus);
 		end
 	end
+end
+
+local watcher = CreateFrame("Frame");
+watcher:SetScript("OnUpdate", function()
+	if lastInput ~= "gamepad" and PadButtonDown() then
+		lastInput = "gamepad";
+	end
+	UpdateShortcuts();
+	UpdateHoldHint();
+	if S.previewing then
+		lastFocus = GetCurrentKeyBoardFocus(); -- in Edit Mode: not typing anywhere, and nothing to open after it
+		return;
+	end
+	CloseIfBoxGone();
+	FollowChatBoxChat();
+	FollowChatBox();
+	FollowBoxText();
+	FollowFocus();
 end);
 watcher:RegisterEvent("PLAYER_REGEN_DISABLED");
 watcher:RegisterEvent("PLAYER_REGEN_ENABLED");
