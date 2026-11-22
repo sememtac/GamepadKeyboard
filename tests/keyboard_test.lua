@@ -810,6 +810,15 @@ pressA(0.7)
 check(holdEntered == 1 and not kb:IsShown() and holdBox:GetText() == "ab", "in another text box, holding A is that box's Enter")
 holdBox:ClearFocus(); poll()
 
+-- ---- the frame's size: the widest row of keys and a 14 edge each side; the last row clear of the footer ---------------
+openChat("SAY"); poll()
+local function rowSpan(k1, k2) return key(k2).point[2] + key(k2).width - key(k1).point[2] end
+check(kb.width == rowSpan("1", "BACK") + 2 * 14 and math.abs(key("1").point[2] - 14) < 0.01,
+	"the frame: its widest row (the numbers and Del) with a 14 edge each side")
+local lastRowBottom = -key("ENTER").point[3] + key("ENTER").height
+check(kb.height - lastRowBottom == 4 + 22 + 10, "...and under the last row a gap, then the footer (its glyphs and their margin)")
+endChat()
+
 -- ---- names, for a box that looks them up (the mail's To:) ----------------------------------------------------------
 local mail = W.CreateFrame("Frame", "MockMailFrame", UIParent)
 local mailTo = W.CreateFrame("EditBox", "SendMailNameEditBox", mail, "InputBoxTemplate")
@@ -829,7 +838,7 @@ local function shownNames()
 end
 manager:FrameShown(mail)
 padA(function() mailTo:SetFocus() end)
-check(kb:IsShown() and shownNames() == "" and kb.height == 84 + 6 * 34 and key("1").point[3] == -56 - 34,
+check(kb:IsShown() and shownNames() == "" and kb.height == 88 + 6 * 34 and key("1").point[3] == -56 - 34,
 	"the mail's To: box: a row for names above the keys, empty with nothing typed")
 type("bo")
 check(shownNames() == "Bob,Bobby,Boris-Other,Bonnie", "typing: the names it knows that start so, four at most (" .. shownNames() .. ")")
@@ -852,14 +861,14 @@ padA(function() mailTo:SetFocus() end)
 type("bo")
 focus(mail); poll()
 padA(function() subject:SetFocus() end)
-check(kb:IsShown() and preview() == "|" and shownNames() == "" and kb.height == 84 + 5 * 34,
+check(kb:IsShown() and preview() == "|" and shownNames() == "" and kb.height == 88 + 5 * 34,
 	"A on the Subject: while the keyboard is open: it types there now (no names there)")
 focus(kb); poll()
 type("hi")
 check(subject:GetText() == "hi" and mailTo:GetText() == "bo", "...the letters go into the Subject:, To: keeps its own")
 focus(mail); poll()
 padA(function() mailTo:SetFocus() end)
-check(preview() == "bo|" and shownNames() == "Bob,Bobby,Boris-Other,Bonnie" and kb.height == 84 + 6 * 34,
+check(preview() == "bo|" and shownNames() == "Bob,Bobby,Boris-Other,Bonnie" and kb.height == 88 + 6 * 34,
 	"back to To:: it types there again, with its names")
 focus(kb); poll()
 type("b")
@@ -972,7 +981,7 @@ custom.autoCompleteSource, custom.autoCompleteParams = function() calls = calls 
 manager:FrameShown(mail)
 padA(function() custom:SetFocus() end)
 type("bo")
-check(calls == 0 and shownNames() == "" and kb.height == 84 + 5 * 34, "a box with its own lookup function: not called, no name row")
+check(calls == 0 and shownNames() == "" and kb.height == 88 + 5 * 34, "a box with its own lookup function: not called, no name row")
 kb:SmartNavigationCloseHandler(); custom:ClearFocus(); poll()
 local handled = W.CreateFrame("EditBox", nil, mail, "InputBoxTemplate")
 handled.center = { 400, 700 }
@@ -985,7 +994,7 @@ kb:SmartNavigationCloseHandler(); handled:ClearFocus(); manager:FrameHidden(mail
 chatBox.autoCompleteSource, chatBox.autoCompleteParams = C_AutoComplete.GetAutoCompleteResults, { 1, 0 } -- (a whisper's)
 openChat("SAY"); poll()
 type("bo")
-check(shownNames() == "" and kb.height == 84 + 5 * 34, "chat: no name row (its own list is for whisper targets)")
+check(shownNames() == "" and kb.height == 88 + 5 * 34, "chat: no name row (its own list is for whisper targets)")
 endChat()
 chatBox.autoCompleteSource, chatBox.autoCompleteParams = nil, nil
 local withCommand = W.CreateFrame("EditBox", nil, mail, "InputBoxTemplate")
@@ -1058,7 +1067,7 @@ GamepadKeyboardDB.names = false
 manager:FrameShown(mail)
 padA(function() mailTo:SetFocus() end)
 type("bo")
-check(shownNames() == "" and kb.height == 84 + 5 * 34, "Name suggestions off: no name row")
+check(shownNames() == "" and kb.height == 88 + 5 * 34, "Name suggestions off: no name row")
 kb:SmartNavigationCloseHandler(); mailTo:ClearFocus(); mailTo.text = ""; manager:FrameHidden(mail); poll()
 GamepadKeyboardDB.names = nil
 -- A longer hold.
@@ -1270,7 +1279,7 @@ gold.scripts.OnEnterPressed = function() silver:SetFocus() end -- MoneyFrameEdit
 manager:FrameShown(mailFrameReal)
 padA(function() gold:SetFocus() end)
 check(kb:IsShown() and key("1") and key("0") and key("BACK") and key("ENTER") and not key("q") and not key("SPACE")
-	and not key("SYMBOLS") and not key("CHAT") and not key("SHIFT") and kb.height == 84 + 4 * 34,
+	and not key("SYMBOLS") and not key("CHAT") and not key("SHIFT") and kb.height == 88 + 4 * 34,
 	"the mail's gold (a box of numbers, looked through): the keyboard opens on a numpad, four rows")
 local function rowY(k) return key(k).point[3] end
 local function colX(k) return key(k).point[2] end

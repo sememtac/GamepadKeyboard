@@ -77,6 +77,14 @@ local function OverChat()
 end
 
 local KEY_WIDTH, KEY_HEIGHT, GAP = 36, 30, 4;
+local ROW = KEY_HEIGHT + GAP; -- a row of keys and the gap under it
+-- The frame: its edge to the keys, name keys and footer; its top to the first row of keys (under the title
+-- and the line); the line (the preview) under the title; the footer's prompts (a glyph, the space before the
+-- next one) and their margin under them.
+local EDGE, KEYS_TOP = 14, 56;
+local LINE_TOP, LINE_INSET = 32, 16;
+local PROMPT_SIZE, PROMPT_SPACING, PROMPT_BOTTOM = 22, 12, 10;
+local FOOTER = PROMPT_SIZE + PROMPT_BOTTOM;
 
 local BACK, SHIFT, SYMBOLS, LETTERS, SPACE, ENTER, CHAT = "BACK", "SHIFT", "SYMBOLS", "LETTERS", "SPACE", "ENTER", "CHAT";
 local SPECIAL_KEYS = {
@@ -122,6 +130,30 @@ local PAGES = {
 };
 -- A page whose keys are all one width (in keys): the numpad's grid.
 local PAGE_KEY_UNITS = { numbers = 2 };
+
+-- A key's width in keys (a special key's own, or its page's), and in pixels (the gaps it spans with it).
+local function KeyUnits(key, pageUnits)
+	local special = SPECIAL_KEYS[key];
+	return pageUnits or special and special.units or 1;
+end
+local function KeyWidth(units)
+	return units * KEY_WIDTH + (units - 1) * GAP;
+end
+
+-- The widest row of keys on any page: the frame is that and its edges.
+local function WidestRow()
+	local widest = 0;
+	for name, layout in pairs(PAGES) do
+		for _, rowKeys in ipairs(layout) do
+			local width = (#rowKeys - 1) * GAP;
+			for _, key in ipairs(rowKeys) do
+				width = width + KeyWidth(KeyUnits(key, PAGE_KEY_UNITS[name]));
+			end
+			widest = math.max(widest, width);
+		end
+	end
+	return widest;
+end
 
 local keys = {}; -- page -> rows of key buttons
 local suggestions = {}; -- the name keys
@@ -553,9 +585,9 @@ local function UpdateChatHeader()
 	if label then
 		S.keyboard.Preview:SetPoint("TOPLEFT", header, "TOPRIGHT", 6, 0);
 	else
-		S.keyboard.Preview:SetPoint("TOPLEFT", 16, -32);
+		S.keyboard.Preview:SetPoint("TOPLEFT", LINE_INSET, -LINE_TOP);
 	end
-	S.keyboard.Preview:SetPoint("TOPRIGHT", -16, -32);
+	S.keyboard.Preview:SetPoint("TOPRIGHT", -LINE_INSET, -LINE_TOP);
 end
 
 local function UpdatePreview()
@@ -679,11 +711,11 @@ end
 -- The page's keys, the chat key only for chat; each row centred over the keys it shows.
 local function Layout()
 	local top = S.suggesting and 1 or 0;
-	local nameWidth = (S.keyboard:GetWidth() - 28 - (MAX_SUGGESTIONS - 1) * GAP) / MAX_SUGGESTIONS;
+	local nameWidth = (S.keyboard:GetWidth() - 2 * EDGE - (MAX_SUGGESTIONS - 1) * GAP) / MAX_SUGGESTIONS;
 	for i, button in ipairs(suggestions) do
 		button:SetSize(nameWidth, KEY_HEIGHT);
 		button:ClearAllPoints();
-		button:SetPoint("TOPLEFT", 14 + (i - 1) * (nameWidth + GAP), -56);
+		button:SetPoint("TOPLEFT", EDGE + (i - 1) * (nameWidth + GAP), -KEYS_TOP);
 		button:SetShown(S.suggesting and button.suggestion ~= nil);
 	end
 	for name, rows in pairs(keys) do
@@ -699,13 +731,13 @@ local function Layout()
 			for _, button in ipairs(row) do
 				if button:IsShown() then
 					button:ClearAllPoints();
-					button:SetPoint("TOPLEFT", x, -56 - (r - 1 + top) * (KEY_HEIGHT + GAP));
+					button:SetPoint("TOPLEFT", x, -KEYS_TOP - (r - 1 + top) * ROW);
 					x = x + button.width + GAP;
 				end
 			end
 		end
 	end
-	S.keyboard:SetHeight(84 + (#keys[S.page] + top) * (KEY_HEIGHT + GAP));
+	S.keyboard:SetHeight(KEYS_TOP + (#keys[S.page] + top) * ROW + FOOTER);
 end
 
 -- The chat types there are to use, then the whispers: the one this chat was in (opened from a name, say)
@@ -755,7 +787,7 @@ end
 -- cursor on the line's chat (from anything else, a channel say: on Say): up / down, A takes one (held too),
 -- B goes back. Not a Blizzard menu: one an addon opens runs the controller UI's menu callbacks as the addon's
 -- doing (see the layout option).
-local CHOICE_HEIGHT, CHOICE_STEP = 26, 28;
+local CHOICE_HEIGHT, CHOICE_STEP, LIST_PAD = 26, 28, 6;
 
 -- A chat's name in its colour (in the text: a button's own colour changes with its highlight).
 local function ChatChoiceText(to)
@@ -800,9 +832,9 @@ local function OpenChatList(chatKey)
 	-- Over the keys, and over the controller UI's focus glow round the keyboard (a frame level of its own,
 	-- far above the keyboard's) where the list goes past the keyboard's edge.
 	frame:SetFrameLevel(math.max(S.keyboard:GetFrameLevel() + 10, S.keyboard.FrameGlow and S.keyboard.FrameGlow:GetFrameLevel() + 1 or 0));
-	frame:SetSize(chatKey.width + 12, #list * CHOICE_STEP - (CHOICE_STEP - CHOICE_HEIGHT) + 12);
+	frame:SetSize(chatKey.width + 2 * LIST_PAD, #list * CHOICE_STEP - (CHOICE_STEP - CHOICE_HEIGHT) + 2 * LIST_PAD);
 	frame:ClearAllPoints();
-	frame:SetPoint("BOTTOMLEFT", chatKey, "TOPLEFT", -6, GAP); -- up from the key (kept on the screen)
+	frame:SetPoint("BOTTOMLEFT", chatKey, "TOPLEFT", -LIST_PAD, GAP); -- up from the key (kept on the screen)
 	local current;
 	for i, choice in ipairs(chatChoices) do
 		local entry = list[i];
@@ -812,7 +844,7 @@ local function OpenChatList(chatKey)
 			choice:SetFrameLevel(frame:GetFrameLevel() + 1);
 			choice:SetSize(chatKey.width, CHOICE_HEIGHT);
 			choice:ClearAllPoints();
-			choice:SetPoint("TOPLEFT", frame, "TOPLEFT", 6, -6 - (i - 1) * CHOICE_STEP);
+			choice:SetPoint("TOPLEFT", frame, "TOPLEFT", LIST_PAD, -LIST_PAD - (i - 1) * CHOICE_STEP);
 			choice:SetText(ChatChoiceText(EntryChat(entry)));
 			current = current or (SameChat(entry) and choice);
 		end
@@ -1161,7 +1193,7 @@ local named = {};
 
 local function CreateKey(key, pageUnits)
 	local special = SPECIAL_KEYS[key];
-	local units = pageUnits or special and special.units or 1;
+	local units = KeyUnits(key, pageUnits);
 	local name = SHORTCUT_KEYS[key];
 	if named[key] then
 		name = nil;
@@ -1181,7 +1213,7 @@ local function CreateKey(key, pageUnits)
 		button = CreateFrame("Button", name, S.keyboard, "UIPanelButtonTemplate");
 		button:SetScript("OnClick", Press);
 	end
-	button.width = units * KEY_WIDTH + (units - 1) * GAP;
+	button.width = KeyWidth(units);
 	button:SetSize(button.width, KEY_HEIGHT);
 	button:SetText(special and special.label or key);
 	button.key = key;
@@ -1259,15 +1291,15 @@ hooksecurefunc("SetOverrideBinding", BoundOver);
 
 local function CreatePrompt(key, label, anchorTo, isHold)
 	local icon = CreateFrame("Frame", nil, S.keyboard, "InputIconTextureFrameTemplate");
-	icon:SetSize(22, 22);
+	icon:SetSize(PROMPT_SIZE, PROMPT_SIZE);
 	icon:SetInputKey(key);
 	if isHold then
 		icon:SetIsHoldAction(true); -- the press-and-hold ring
 	end
 	if anchorTo then
-		icon:SetPoint("LEFT", anchorTo, "RIGHT", 12, 0);
+		icon:SetPoint("LEFT", anchorTo, "RIGHT", PROMPT_SPACING, 0);
 	else
-		icon:SetPoint("BOTTOMLEFT", 14, 10);
+		icon:SetPoint("BOTTOMLEFT", EDGE, PROMPT_BOTTOM);
 	end
 	local caption = S.keyboard:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall");
 	caption:SetPoint("LEFT", icon, "RIGHT", 3, 0);
@@ -1285,7 +1317,7 @@ end
 
 local function CreateKeyboard()
 	S.keyboard = CreateFrame("Frame", "GamepadKeyboardFrame", UIParent, "BasicFrameTemplateWithInset, FocusFramesInterfaceTemplate");
-	S.keyboard:SetSize(11 * KEY_WIDTH + 10 * GAP + 28, 260);
+	S.keyboard:SetWidth(WidestRow() + 2 * EDGE); -- (its height is the page's: see Layout)
 	S.keyboard:SetFrameStrata("FULLSCREEN_DIALOG");
 	S.keyboard:SetClampedToScreen(true);
 	S.keyboard:EnableMouse(true);
@@ -1301,10 +1333,10 @@ local function CreateKeyboard()
 	S.keyboard.Title:SetPoint("TOP", 0, -5);
 	S.keyboard.Title:SetText("Keyboard");
 	S.keyboard.ChatHeader = S.keyboard:CreateFontString(nil, "OVERLAY", "GameFontHighlight");
-	S.keyboard.ChatHeader:SetPoint("TOPLEFT", 16, -32);
+	S.keyboard.ChatHeader:SetPoint("TOPLEFT", LINE_INSET, -LINE_TOP);
 	S.keyboard.Preview = S.keyboard:CreateFontString(nil, "OVERLAY", "GameFontHighlight");
-	S.keyboard.Preview:SetPoint("TOPLEFT", 16, -32);
-	S.keyboard.Preview:SetPoint("TOPRIGHT", -16, -32);
+	S.keyboard.Preview:SetPoint("TOPLEFT", LINE_INSET, -LINE_TOP);
+	S.keyboard.Preview:SetPoint("TOPRIGHT", -LINE_INSET, -LINE_TOP);
 	S.keyboard.Preview:SetJustifyH("LEFT");
 
 	S.keyboard.ChatKeys = {};
@@ -1424,6 +1456,8 @@ end
 -- units, so they're multiplied by its scale to keep and divided to use - the same spot at any size); else for
 -- chat beside the chat window, not over it; else above the text box if it's in the lower half of the
 -- screen, below it if not; with no box (Edit Mode), the middle of the screen.
+local BESIDE_CHAT, BY_BOX = 24, 8; -- (the gap to the chat window, to the box)
+
 local function Position(box)
 	local scale = Setting("scale");
 	S.keyboard:SetScale(scale);
@@ -1438,15 +1472,15 @@ local function Position(box)
 		return;
 	end
 	if box.chatFrame then
-		S.keyboard:SetPoint("BOTTOMLEFT", box.chatFrame, "BOTTOMRIGHT", 24, 0);
+		S.keyboard:SetPoint("BOTTOMLEFT", box.chatFrame, "BOTTOMRIGHT", BESIDE_CHAT, 0);
 		return;
 	end
 	local _, y = box:GetCenter();
 	local screenHeight = UIParent:GetHeight();
 	if y and screenHeight and screenHeight > 0 and y > screenHeight / 2 then
-		S.keyboard:SetPoint("TOP", box, "BOTTOM", 0, -8);
+		S.keyboard:SetPoint("TOP", box, "BOTTOM", 0, -BY_BOX);
 	elseif y then
-		S.keyboard:SetPoint("BOTTOM", box, "TOP", 0, 8);
+		S.keyboard:SetPoint("BOTTOM", box, "TOP", 0, BY_BOX);
 	else
 		S.keyboard:SetPoint("CENTER");
 	end
