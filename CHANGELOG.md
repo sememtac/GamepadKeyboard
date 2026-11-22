@@ -21,6 +21,10 @@
 - Fixed: if combat started just as the keyboard closed and the game held on to it, the keyboard could pop
   back up after combat without the controller working on it. And if it stays up into combat, buttons the
   controller UI took over then are the keyboard's again afterwards.
+- The keyboard is a little wider (an even margin round the keys) and the bottom row no longer touches the
+  footer.
+- Under the hood: the addon is several files now, each part on its own, and its tests check far more
+  (combat, the Enter key itself, every file's names). Nothing else changes in how it behaves.
 - The Auction House's buy quantity (a stack) says why it doesn't open, and what to do instead: A on a row
   of the price list buys up to it. So does the Filter list's level range: tick Usable Only instead.
 

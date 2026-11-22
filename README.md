@@ -152,6 +152,22 @@ Whichever you're using has the text box:
 
 ## How it works
 
+The files, in the order the game loads them; they share one table of state (`S`: the frame, the box, the
+line, the chat) and each other's functions through the addon's own table:
+
+| File | What's in it |
+|---|---|
+| `Core/Core.lua` | the state, the pages of keys and their sizes, the settings |
+| `Core/GamepadUI.lua` | registering with Blizzard's gamepad UI, the D-pad's rows, the cursor |
+| `Keyboard/Chat.lua` | the chats, their names and colours, the line a macro sends |
+| `Keyboard/Boxes.lua` | which text boxes it types into (`REVIEWED`), and the note when it doesn't |
+| `Keyboard/Typing.lua` | the line, the preview, the name keys, the layout, the chat key's list |
+| `Keyboard/Buttons.lua` | the secure buttons (Enter keys, A), the hold of A, the controller's buttons |
+| `Keyboard/Frame.lua` | building the keyboard, where it opens |
+| `UI/Options.lua`, `UI/EditMode.lua` | its Options page; Edit Mode |
+| `Watch.lua` | when it opens and for which box, the focus hooks, the per-frame watcher, combat |
+| `Commands.lua` | `/gk` |
+
 `GetCurrentKeyBoardFocus()` is checked once per frame, and `SetFocus` on any text box and the chat
 frames' `SetGamepadFocus` are post-hooked (`hooksecurefunc`) for a box that is asked for again while it
 already has focus; the refocus that closing the keyboard causes is ignored. It opens only if the controller
@@ -261,7 +277,9 @@ multiplied by its scale when kept and divided when used - so it stays put at any
 
 ## Tests
 
-`luajit tests/keyboard_test.lua` (or `nvim -l`) from the repo root: 375 checks, with the focus manager and
+`tests/run.sh` (luajit, or Neovim's `nvim -l`) from the repo root. `tests/static_test.lua`: the TOC, the
+package, every file valid Lua 5.1 and reading only the globals it means to. `tests/keyboard_test.lua`: 399
+checks, with the focus manager and
 the chat box following Blizzard's code, every chat send function poisoned, every write into the chat box
 from the addon flagged, the Enter key clicked the way
 Blizzard's secure action button runs a click, the controller pressing as it does (A held as a box takes
