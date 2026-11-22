@@ -46,6 +46,10 @@ local ADDON_NAME, ns = ...;
 -- (read at each use: never copied into a local that would keep an old value).
 local S = {};
 ns.S = S;
+S.chat = {}; -- the chat the line goes to: { chatType, tellTarget, channelTarget }
+S.chatDraft = nil; -- a chat line closed unsent: { text, chat } - back the next time the keyboard opens on chat
+S.seenChat = nil; -- the chat box's own chat type last frame (to see a whisper started elsewhere)
+S.whisperedTo = nil; -- the whisper this chat was in while the keyboard was up: { chatType, target }
 S.cursor = 0; -- characters before the cursor
 S.text = "";
 S.isChat = false;
@@ -108,12 +112,8 @@ local suggestions = {}; -- the name keys
 -- parsing) would run as this addon's doing and stay so - read by Blizzard's chat later, on into the
 -- controller's bindings: blocked, blamed on the addon. The chat box is only read - but for its chat
 -- attributes (what its own send reads; attributes come back clean).
-local chat = {}; -- the chat the line goes to: { chatType, tellTarget, channelTarget }
-local seenChat; -- the chat box's own chat type last frame (to see a whisper started elsewhere)
 local seenBoxText; -- the chat box's own text last frame (a line Blizzard put there: the preview follows)
 local toldBoxLine = false; -- said once: a line in the chat box is sent from there
-local chatDraft; -- a chat line closed unsent: { text, chat } - back the next time the keyboard opens on chat
-local whisperedTo; -- the whisper this chat was in while the keyboard was up: { chatType, target }
 local lastNamesBox; -- the last box typed into that isn't chat (for /gk names)
 local lastBoxName; -- the last box typed into (for a report if the game blocks the addon)
 local shift = false;
@@ -362,7 +362,7 @@ end
 
 -- A chat's name (the line's, unless another's given): "Guild", "To Bob", "/2".
 local function ChatLabel(to)
-	to = to or chat;
+	to = to or S.chat;
 	local chatType = to.chatType;
 	if IsWhisper(chatType) then
 		local name = tostring(to.tellTarget or ""):gsub("%-.*$", "");
@@ -418,8 +418,8 @@ end
 -- whisper it had then - else the box's.
 local function ChatFor(box)
 	local boxChat = ChatOf(box);
-	if chatDraft and not (IsWhisper(boxChat.chatType) and not chatDraft.boxChats[ChatKey(boxChat)]) then
-		return chatDraft.chat;
+	if S.chatDraft and not (IsWhisper(boxChat.chatType) and not S.chatDraft.boxChats[ChatKey(boxChat)]) then
+		return S.chatDraft.chat;
 	end
 	return boxChat;
 end
@@ -502,8 +502,8 @@ local function UpdateChatKey()
 		end
 	end
 	-- A whisper to someone other than whoever whispered last (they're the reply, always offered).
-	if chat.chatType == "WHISPER" and chat.tellTarget and chat.tellTarget ~= LastTell() then
-		whisperedTo = { chatType = chat.chatType, target = chat.tellTarget };
+	if S.chat.chatType == "WHISPER" and S.chat.tellTarget and S.chat.tellTarget ~= LastTell() then
+		S.whisperedTo = { chatType = S.chat.chatType, target = S.chat.tellTarget };
 	end
 end
 
@@ -528,7 +528,7 @@ local function UpdateChatHeader()
 	local header = S.keyboard.ChatHeader;
 	local label = S.isChat and S.target and (ChatLabel() .. ":") or nil;
 	local info = label and ChatTypeInfo
-		and ChatTypeInfo[chat.chatType == "CHANNEL" and ("CHANNEL" .. tostring(chat.channelTarget)) or chat.chatType];
+		and ChatTypeInfo[S.chat.chatType == "CHANNEL" and ("CHANNEL" .. tostring(S.chat.channelTarget)) or S.chat.chatType];
 	local r, g, b = info and info.r or 1, info and info.g or 0.82, info and info.b or 0;
 	header:SetText(label or "");
 	header:SetTextColor(r, g, b);
@@ -631,7 +631,7 @@ local function Insert(characters)
 	local before, after = Split(S.text, S.cursor);
 	local newText = before .. characters .. after;
 	if S.isChat then
-		if #(ChatLine(newText, chat) or newText) > MAX_LINE then
+		if #(ChatLine(newText, S.chat) or newText) > MAX_LINE then
 			return; -- (as long as one chat line can be)
 		end
 	elseif S.target and S.target:IsNumeric() and characters:find("%D") then
@@ -700,8 +700,8 @@ local function ChatTypesToUse()
 		list[#list + 1] = entry;
 	end
 	local lastTell, lastTellType = LastTell();
-	if whisperedTo and whisperedTo.target ~= lastTell then
-		list[#list + 1] = whisperedTo;
+	if S.whisperedTo and S.whisperedTo.target ~= lastTell then
+		list[#list + 1] = S.whisperedTo;
 	end
 	if lastTell and (lastTellType or "WHISPER") == "WHISPER" then
 		list[#list + 1] = { chatType = "WHISPER", target = lastTell };
@@ -717,18 +717,18 @@ end
 -- Whether it's the line's own chat (a whisper: by who it's to).
 local function SameChat(entry)
 	if entry.target then
-		return chat.chatType == "WHISPER" and entry.target == chat.tellTarget;
+		return S.chat.chatType == "WHISPER" and entry.target == S.chat.tellTarget;
 	end
-	return entry.chatType == chat.chatType;
+	return entry.chatType == S.chat.chatType;
 end
 
 local function SetChat(entry)
-	chat = EntryChat(entry);
+	S.chat = EntryChat(entry);
 	if (S.target:GetText() or "") ~= "" then
 		-- The chat box's own line goes there too: its chat (attributes - what its send reads, and they come
 		-- back clean) and its header (Blizzard's, which only redraws).
-		S.target:SetAttribute("chatType", chat.chatType);
-		S.target:SetAttribute("tellTarget", chat.tellTarget);
+		S.target:SetAttribute("chatType", S.chat.chatType);
+		S.target:SetAttribute("tellTarget", S.chat.tellTarget);
 		S.target:SetAttribute("channelTarget", nil);
 		S.target:UpdateHeader();
 	end
@@ -827,13 +827,13 @@ end
 -- keyboard opens on chat, in its chat; an empty one leaves nothing.
 local function KeepChatDraft()
 	if S.text == "" or not S.target then
-		chatDraft = nil;
+		S.chatDraft = nil;
 		return;
 	end
 	-- (and the chat box's own chat as the keyboard last took it in, and as it goes back to when it closes: its
 	-- sticky type)
-	chatDraft = { text = S.text, chat = chat, boxChats = {
-		[seenChat] = true,
+	S.chatDraft = { text = S.text, chat = S.chat, boxChats = {
+		[S.seenChat] = true,
 		[ChatKey({ chatType = S.target:GetAttribute("stickyType"), tellTarget = S.target:GetAttribute("tellTarget") })] = true,
 	} };
 end
@@ -985,7 +985,7 @@ local function EnterPreClick(button)
 	end
 	local line;
 	if S.target and S.isChat and S.text ~= "" then
-		line = ChatLine(S.text, chat);
+		line = ChatLine(S.text, S.chat);
 		if line and #line > MAX_LINE then
 			line = nil; -- (the chat key moved it to a longer whisper)
 		end
@@ -1030,14 +1030,14 @@ local function EnterPostClick(button)
 			return;
 		end
 		local sent = sentLine ~= "" and S.text:sub(1, 1) ~= "/";
-		if sent and ChatTypeInfo and ChatTypeInfo[chat.chatType] and ChatTypeInfo[chat.chatType].sticky == 1 then
+		if sent and ChatTypeInfo and ChatTypeInfo[S.chat.chatType] and ChatTypeInfo[S.chat.chatType].sticky == 1 then
 			-- As Blizzard's own send leaves the box: the chat it goes back to, and who or which channel that is
 			-- (going back, it takes only the type - a whisper with someone else's name, or none, otherwise).
-			box:SetAttribute("stickyType", chat.chatType);
-			if chat.chatType == "WHISPER" then
-				box:SetAttribute("tellTarget", chat.tellTarget);
-			elseif chat.chatType == "CHANNEL" then
-				box:SetAttribute("channelTarget", chat.channelTarget);
+			box:SetAttribute("stickyType", S.chat.chatType);
+			if S.chat.chatType == "WHISPER" then
+				box:SetAttribute("tellTarget", S.chat.tellTarget);
+			elseif S.chat.chatType == "CHANNEL" then
+				box:SetAttribute("channelTarget", S.chat.channelTarget);
 			end
 		end
 		S.text, S.cursor = "", 0; -- sent: no line to keep
@@ -1443,18 +1443,18 @@ local function SetTarget(box)
 	lastBoxName = reviewed and table.concat(reviewed.box, ".")
 		or (box:GetName() or "an unnamed text box") .. " in " .. tostring(parent and parent:GetName() or "an unnamed frame");
 	chatHadFocus = nil; -- a new box: no focus seen yet
-	whisperedTo = nil; -- (the box's own, if it's in one, at the next preview)
+	S.whisperedTo = nil; -- (the box's own, if it's in one, at the next preview)
 	HideChatList();
 	S.isChat = box.chatFrame ~= nil;
 	suggesting = Setting("names") and LooksUpNames(box);
 	if S.isChat then
 		-- The chat box empties and goes back to its usual chat as the controller moves to the keyboard; the
 		-- line and its chat stay here.
-		chat = ChatFor(box);
-		S.text = chatDraft and chatDraft.text or "";
-		chatDraft = nil;
+		S.chat = ChatFor(box);
+		S.text = S.chatDraft and S.chatDraft.text or "";
+		S.chatDraft = nil;
 		local boxChat = ChatOf(box);
-		seenChat = ChatKey(boxChat);
+		S.seenChat = ChatKey(boxChat);
 	else
 		lastNamesBox = box;
 		S.text = box:GetText() or "";
@@ -1986,15 +1986,15 @@ watcher:SetScript("OnUpdate", function()
 		-- there. Other changes are the chat box's own (emptied as it lost focus: back to its usual chat).
 		local boxChat = ChatOf(S.target);
 		local seen = ChatKey(boxChat);
-		if seen ~= seenChat then
+		if seen ~= S.seenChat then
 			if IsWhisper(boxChat.chatType) and boxChat.tellTarget and not Sayable(boxChat) then
 				local box = S.target;
 				Close(); -- (the line waits, in its own chat: this one is new to it)
 				TellCantType(box);
 			else
-				seenChat = seen;
+				S.seenChat = seen;
 				if IsWhisper(boxChat.chatType) and boxChat.tellTarget then
-					chat = boxChat;
+					S.chat = boxChat;
 					UpdatePreview();
 				end
 			end
