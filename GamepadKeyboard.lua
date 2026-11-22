@@ -67,6 +67,7 @@ S.picking = false; -- the chat list is open (see OpenChatList)
 S.handedBack = nil; -- the box the keyboard just went back to: not opened for again until focus moves on
 S.closing = false; -- while closing hands the controller back (which focuses the box again)
 S.previewing = false; -- shown in Edit Mode to be placed, not typing anywhere
+S.lastNamesBox = nil; -- the last box typed into that isn't chat (for /gk names)
 
 -- The keyboard on screen; over a chat box (with one to type into).
 local function IsOpen()
@@ -159,7 +160,6 @@ local keys = {}; -- page -> rows of key buttons
 local suggestions = {}; -- the name keys
 local seenBoxText; -- the chat box's own text last frame (a line Blizzard put there: the preview follows)
 local toldBoxLine = false; -- said once: a line in the chat box is sent from there
-local lastNamesBox; -- the last box typed into that isn't chat (for /gk names)
 local lastBoxName; -- the last box typed into (for a report if the game blocks the addon)
 local lastInput = "gamepad"; -- what the player pressed last: "gamepad", "keyboard" or "mouse"
 local chatHadFocus; -- while open over chat: whether the chat box had typing focus last frame
@@ -1256,6 +1256,13 @@ local function ClearShortcuts()
 	end
 end
 
+-- Bound again (if they are): after combat, the controller UI may have bound its buttons over them.
+local function RebindShortcuts()
+	if shortcutsBound then
+		BindShortcuts();
+	end
+end
+
 local function UpdateShortcuts()
 	if InCombatLockdown() then
 		return;
@@ -1535,7 +1542,7 @@ local function SetTarget(box)
 		local boxChat = ChatOf(box);
 		S.seenChat = ChatKey(boxChat);
 	else
-		lastNamesBox = box;
+		S.lastNamesBox = box;
 		S.text = box:GetText() or "";
 	end
 	S.cursor = Utf8Length(S.text);
@@ -2031,6 +2038,15 @@ local function EndPreview()
 	S.keyboard:SetFrameStrata("FULLSCREEN_DIALOG");
 end
 
+-- Combat over: Edit Mode left in it (the preview ends), or still open (the preview back).
+local function EditModeAfterCombat()
+	if not inEditMode then
+		EndPreview();
+	elseif not S.previewing then
+		EditModeEnter();
+	end
+end
+
 local function EditModeExit()
 	inEditMode = false;
 	EndPreview();
@@ -2170,17 +2186,11 @@ watcher:SetScript("OnEvent", function(_, event, ...)
 	else -- PLAYER_REGEN_ENABLED
 		if S.keyboard and not S.keyboard:IsShown() then
 			ClearShortcuts(); -- if combat stopped it as the keyboard closed
-			if registered then
-				Unregister(); -- a hide Blizzard refused as combat started
-			end
-		elseif shortcutsBound then
-			BindShortcuts(); -- (still up: the controller UI may have bound its buttons over them in combat)
+			Unregister(); -- (if registered still) a hide Blizzard refused as combat started
+		else
+			RebindShortcuts(); -- (still up: the controller UI may have bound its buttons over them in combat)
 		end
-		if not inEditMode then
-			EndPreview(); -- Edit Mode left in combat
-		elseif not S.previewing then
-			EditModeEnter(); -- Edit Mode still open: the preview back
-		end
+		EditModeAfterCombat();
 	end
 end);
 
@@ -2217,8 +2227,8 @@ SlashCmdList.GAMEPADKEYBOARD = function(message)
 		SetOption("scale", DEFAULTS.scale);
 		Print("back to its usual place and size.");
 	elseif message == "names" then
-		if lastNamesBox then
-			DescribeNames(lastNamesBox);
+		if S.lastNamesBox then
+			DescribeNames(S.lastNamesBox);
 		else
 			Print("type in a text box with the keyboard first (the mail's To:, say), then /gk names.");
 		end
