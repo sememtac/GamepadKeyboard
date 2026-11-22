@@ -1286,6 +1286,21 @@ padA(function() buyQuantity:SetFocus() end)
 check(not kb:IsShown() and #world.printed == notesBeforeBuy + 1 and world.printed[#world.printed]:find("price list", 1, true),
 	"...but not a stack's buy quantity (its price only follows real typing): a note pointing to the price list")
 buyQuantity:ClearFocus(); poll()
+-- The Filter list's level range (a Blizzard menu's, LevelRangeFrameTemplate): no, and why, with a way round.
+local levelRange = W.CreateFrame("Frame", nil, UIParent)
+for _, k in ipairs({ "MinLevel", "MaxLevel" }) do
+	levelRange[k] = numberBox(nil, levelRange, { 400, 650 }); levelRange[k].sourceLocation = "Interface/AddOns/Blizzard_SharedXML/Shared/InputBox/InputBoxTemplates.xml:390"
+end
+local notesBeforeLevel = #world.printed
+padA(function() levelRange.MaxLevel:SetFocus() end)
+check(not kb:IsShown() and #world.printed == notesBeforeLevel + 1 and world.printed[#world.printed]:find("Usable Only", 1, true),
+	"...nor the Filter list's level range (the search's filters, which buying reads): a note pointing to Usable Only")
+levelRange.MaxLevel:ClearFocus(); poll()
+AuctionHouseFrame:Hide()
+padA(function() levelRange.MinLevel:SetFocus() end)
+check(not kb:IsShown() and world.printed[#world.printed]:find("the game's own text box", 1, true),
+	"(a level range elsewhere, the auction house closed: the usual note)")
+levelRange.MinLevel:ClearFocus(); levelRange:Hide(); AuctionHouseFrame:Show(); poll()
 -- Its search: typed in; Enter presses Search (securely), never the box's own Enter.
 AuctionHouseFrame.SearchBar = W.CreateFrame("Frame", nil, AuctionHouseFrame)
 local ahSearch = W.CreateFrame("EditBox", nil, AuctionHouseFrame.SearchBar, "InputBoxTemplate"); ahSearch.center = { 400, 750 }

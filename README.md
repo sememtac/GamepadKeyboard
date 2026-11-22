@@ -133,10 +133,11 @@ Whichever you're using has the text box:
   guild charter and the Auction House's search, Enter (or holding A) presses the window's button -
   Search, Purchase - as you would. Not the game's other text boxes - the bag and
   bank searches, the Options search, the spellbook and talent searches, confirmation popups, the Auction
-  House's buy quantity, trade money and so on: what an addon types into one runs the game's own code as
+  House's buy quantity and Filter level range, trade money and so on: what an addon types into one runs the game's own code as
   the addon's doing, and some of that goes on into things only the game's UI may do, so the game blocks
   the addon (it did for the bag search and the Options search). A real keyboard types there as usual; the
-  first time, it says so (for the buy quantity: pick from the price list, A on a row buys up to it).
+  first time, it says so (for the buy quantity: pick from the price list, A on a row buys up to it; for the
+  level range: Usable Only).
 - **Boxes of numbers** (a price, a quantity, the mail's gold / silver / copper) open on a numpad - 7 8 9 /
   4 5 6 / 1 2 3 / Del 0 Enter, every key the same size; letters and Space don't go in.
 - **If the game ever blocks it anyway**, it prints what was blocked and which text box it last typed into -

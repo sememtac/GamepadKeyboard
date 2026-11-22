@@ -1523,6 +1523,12 @@ local function SpecialNote(box)
 		-- a call only Blizzard's UI may make, the addon's.
 		return "not for the Auction House's buy quantity: its price only follows a real keyboard's typing. Pick the amount from the price list instead (A on a row buys up to it).";
 	end
+	local parent = box:GetParent();
+	if parent and (box == parent.MinLevel or box == parent.MaxLevel) and AuctionHouseFrame and AuctionHouseFrame:IsShown() then
+		-- The Filter list's level range (LevelRangeFrameTemplate): typing there writes the search's filters
+		-- (g_auctionHouseFilters), which every search, and buying from it, reads - the addon's from then on.
+		return "not for the Auction House's level range: it goes into the search's filters, which buying reads too. For gear you can use now, tick Usable Only in the same list.";
+	end
 end
 
 local function TellCantType(box)

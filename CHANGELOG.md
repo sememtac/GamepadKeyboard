@@ -15,7 +15,7 @@
   get the addon blocked (Who, the Finders, crafting orders' search, the guild charter), Enter presses the
   window's button instead - Search, Purchase - as you would.
 - The Auction House's buy quantity (a stack) says why it doesn't open, and what to do instead: A on a row
-  of the price list buys up to it.
+  of the price list buys up to it. So does the Filter list's level range: tick Usable Only instead.
 
 ## 1.1.0
 
