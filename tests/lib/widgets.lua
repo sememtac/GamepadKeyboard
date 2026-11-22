@@ -210,17 +210,15 @@ local CLASSES = { Texture = Texture, FontString = FontString, MaskTexture = Mask
 	CheckButton = CheckButton, EditBox = EditBox, InputIcon = InputIcon }
 
 -- A forbidden object (Blizzard's store, Communities' secure boxes): addon code may only ask IsForbidden, any
--- other method errors (world.addonFile names the addon's source; the test's own calls stand for the game's).
+-- other method errors (world.isAddonCaller says whether the caller is the addon's - past C functions between;
+-- the test's own calls stand for the game's).
 local function new(kind, parent, class)
 	local o = { kind = kind, parent = parent, shown = true, scripts = {}, attrs = {}, events = {}, enabled = true, checked = false }
 	local methods = CLASSES[class or kind] or Frame
 	local forbidden = { __index = function(_, k)
 		local v = methods[k]
-		if type(v) == "function" and k ~= "IsForbidden" and world and world.addonFile then
-			local caller = debug.getinfo(2, "S")
-			if caller and caller.source:find(world.addonFile, 1, true) then
-				return function() error("forbidden object: " .. k .. " called from the addon", 2) end
-			end
+		if type(v) == "function" and k ~= "IsForbidden" and world and world.isAddonCaller and world.isAddonCaller(2) then
+			return function() error("forbidden object: " .. k .. " called from the addon", 2) end
 		end
 		return v
 	end }

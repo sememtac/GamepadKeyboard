@@ -57,10 +57,38 @@ function H.tocFiles()
 	return files
 end
 
--- Globals the addon may create: its saved variables, named frames, slash command, key binding names, and the
--- functions the TOC and Bindings.xml call by name.
-local ALLOWED_GLOBALS = { "^GamepadKeyboard", "^SLASH_GAMEPADKEYBOARD%d+$" }
+-- Globals the addon may create, by name: its saved variables, named frames and slash commands. (A name, not a
+-- prefix: once the addon is several files, any of them could leak a GamepadKeyboardSomething unseen.)
+local ALLOWED_GLOBALS = {
+	GamepadKeyboardDB = true, SLASH_GAMEPADKEYBOARD1 = true, SLASH_GAMEPADKEYBOARD2 = true,
+	GamepadKeyboardFrame = true, GamepadKeyboardAButton = true, GamepadKeyboardDelKey = true,
+	GamepadKeyboardSpaceKey = true, GamepadKeyboardCursorLeft = true, GamepadKeyboardCursorRight = true,
+}
 H.addonGlobals = {} -- name -> file, for every new global the addon's code created
+
+-- Whether a chunk's source (debug.getinfo's `source`) is one of the addon's files: anywhere under the repo,
+-- not in tests/ (slashes either way, "@" or not).
+function H.isAddonSource(source)
+	source = tostring(source or ""):gsub("^@", ""):gsub("\\", "/")
+	return source:sub(1, #H.root) == H.root and not source:find("/tests/", #H.root, true)
+end
+
+-- The source of the code that called the function asking (`level` as debug.getinfo's, from the asker's
+-- caller), past C functions in between - pcall(box.SetText, box, s) is still the addon's call.
+function H.callerSource(level)
+	level = level + 1
+	while true do
+		local info = debug.getinfo(level, "Sl")
+		if not info then return nil end
+		if info.source ~= "=[C]" then return info.source, info.currentline end
+		level = level + 1
+	end
+end
+
+-- A short name for an addon file ("Keyboard/Chat.lua"), for messages.
+function H.shortName(source)
+	return (tostring(source or ""):gsub("^@", ""):gsub("\\", "/"):sub(#H.root + 2))
+end
 
 -- Records new globals made by the addon's files (not by the test or the mocks).
 local tracking = false
@@ -70,9 +98,8 @@ local function trackGlobals()
 	local root = H.root
 	setmetatable(_G, { __newindex = function(t, k, v)
 		local info = debug.getinfo(2, "S")
-		local source = info and info.source:gsub("^@", ""):gsub("\\", "/") or ""
-		if source:sub(1, #root) == root and not source:find("/tests/", #root, true) then
-			H.addonGlobals[k] = source:sub(#root + 2)
+		if info and H.isAddonSource(info.source) then
+			H.addonGlobals[k] = H.shortName(info.source)
 		end
 		rawset(t, k, v)
 	end })
@@ -81,9 +108,7 @@ end
 function H.unexpectedGlobals()
 	local found = {}
 	for name, file in pairs(H.addonGlobals) do
-		local ok = false
-		for _, pattern in ipairs(ALLOWED_GLOBALS) do if tostring(name):match(pattern) then ok = true end end
-		if not ok then found[#found + 1] = tostring(name) .. " (" .. file .. ")" end
+		if not ALLOWED_GLOBALS[name] then found[#found + 1] = tostring(name) .. " (" .. file .. ")" end
 	end
 	table.sort(found)
 	return found

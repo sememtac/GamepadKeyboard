@@ -8,7 +8,8 @@ local check = H.check
 
 -- ---- a small game world -------------------------------------------------------------------------------
 local world = { combat = false, printed = {}, party = false, raid = false, instance = false, guild = false }
-W.install({ inCombat = function() return world.combat end, addonFile = "GamepadKeyboard.lua",
+W.install({ inCombat = function() return world.combat end,
+	isAddonCaller = function(level) return H.isAddonSource(H.callerSource(level + 1)) end,
 	sourceLocation = "Interface/AddOns/SomeAddon/SomeAddon.lua:1" })
 function InCombatLockdown() return world.combat end
 function print(s) world.printed[#world.printed + 1] = s end
@@ -200,18 +201,32 @@ function chatBox:UpdateHeader() self.header = self.attrs.chatType .. ":" .. tost
 -- The keyboard never writes into Blizzard's chat box: what that sets off there (OnTextChanged's fields, the
 -- chat type's parsing, focus scripts) runs as the addon's doing and stays so - read by Blizzard's own chat
 -- later, and on into the controller's bindings (blocked). Reads, and the sticky chat type (an attribute,
--- which comes back clean), only. Each write from GamepadKeyboard.lua is noted with its line.
+-- which comes back clean), only. Each write from the addon's files is noted with its file and line.
 local chatWrites = {}
 for _, name in ipairs({ "SetText", "Insert", "SetTellTarget", "SetChatType", "SetFocus", "ClearFocus",
 	"SetCursorPosition", "HighlightText" }) do -- (UpdateHeader may: it only redraws the header)
 	local own = rawget(chatBox, name)
 	chatBox[name] = function(self, ...)
-		local caller = debug.getinfo(2, "Sl")
-		if caller and caller.source:find("GamepadKeyboard.lua", 1, true) then
-			chatWrites[#chatWrites + 1] = name .. "@" .. caller.currentline
+		local source, line = H.callerSource(2)
+		if H.isAddonSource(source) then
+			chatWrites[#chatWrites + 1] = name .. "@" .. H.shortName(source) .. ":" .. tostring(line)
 		end
 		return (own or getmetatable(self).__index[name])(self, ...) -- (the class's, hooks and all)
 	end
+end
+-- The guards know the addon's code by where it is - any file under the addon's folder but tests/ - and look
+-- past pcall: a chunk standing for a file in a subfolder sets both off.
+do
+	local forbiddenFrame = W.CreateFrame("Frame", nil, UIParent); forbiddenFrame.forbidden = true
+	local canary = assert(loadstring([[
+		local box, frame = ...
+		pcall(box.SetText, box, "canary")
+		return pcall(function() return frame:Show() end)
+	]], "@" .. H.root .. "/Keyboard/Canary.lua"))
+	local shown = canary(chatBox, forbiddenFrame)
+	check(#chatWrites == 1 and chatWrites[1] == "SetText@Keyboard/Canary.lua:2" and shown == false,
+		"(the guards see the addon's code in any of its files, through pcall: " .. tostring(chatWrites[1]) .. ")")
+	chatWrites[1], chatBox.text = nil, ""
 end
 function chatFrame:FocusGamepad() chatBox:SetFocus() end
 function chatFrame:UnfocusGamepad() chatBox:ClearFocus() end
