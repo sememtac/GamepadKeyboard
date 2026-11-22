@@ -46,6 +46,10 @@ local ADDON_NAME, ns = ...;
 -- (read at each use: never copied into a local that would keep an old value).
 local S = {};
 ns.S = S;
+S.page = "qwerty"; -- a letters page (the layout's), "symbols", or "numbers" (a box of numbers only)
+S.picking = false; -- the chat list is open (see OpenChatList)
+S.shift = false;
+S.suggesting = false; -- the box looks names up (a row of name keys above the keys)
 S.chat = {}; -- the chat the line goes to: { chatType, tellTarget, channelTarget }
 S.chatDraft = nil; -- a chat line closed unsent: { text, chat } - back the next time the keyboard opens on chat
 S.seenChat = nil; -- the chat box's own chat type last frame (to see a whisper started elsewhere)
@@ -104,8 +108,6 @@ local PAGES = {
 local PAGE_KEY_UNITS = { numbers = 2 };
 
 local keys = {}; -- page -> rows of key buttons
-local page = "qwerty"; -- a letters page (the layout's), "symbols", or "numbers" (a box of numbers only)
-local suggesting = false; -- the box looks names up (a row of name keys above the keys)
 local suggestions = {}; -- the name keys
 -- Over chat the line and its chat are the keyboard's own: typed here, sent with a secure macro line, never
 -- written into Blizzard's chat box. What typing there sets off (its text-changed fields, the chat type's
@@ -116,13 +118,11 @@ local seenBoxText; -- the chat box's own text last frame (a line Blizzard put th
 local toldBoxLine = false; -- said once: a line in the chat box is sent from there
 local lastNamesBox; -- the last box typed into that isn't chat (for /gk names)
 local lastBoxName; -- the last box typed into (for a report if the game blocks the addon)
-local shift = false;
 local handedBack; -- the box the keyboard just went back to: not opened for again until focus moves on
 local closing = false; -- while closing hands the controller back (which focuses the box again)
 local previewing = false; -- shown in Edit Mode to be placed, not typing anywhere
 local lastInput = "gamepad"; -- what the player pressed last: "gamepad", "keyboard" or "mouse"
 local chatHadFocus; -- while open over chat: whether the chat box had typing focus last frame
-local picking = false; -- the chat list is open (see OpenChatList)
 local chatChoices = {}; -- its buttons, each with the chat it's for (.entry)
 
 local function DB()
@@ -288,16 +288,16 @@ local function RefreshNavigation()
 	if not (SmartNavigation_AddJumpNavigationOverride and SMART_NAV_INPUT_DIRECTION) then
 		return;
 	end
-	local rows = keys[page];
-	if picking then
+	local rows = keys[S.page];
+	if S.picking then
 		rows = {}; -- the chat list, one under another (and nowhere else: the keys under it aren't reached)
 		for _, choice in ipairs(chatChoices) do
 			if choice:IsShown() then
 				rows[#rows + 1] = { choice };
 			end
 		end
-	elseif suggesting then
-		rows = { suggestions, unpack(keys[page]) };
+	elseif S.suggesting then
+		rows = { suggestions, unpack(keys[S.page]) };
 	end
 	for _, row in ipairs(rows) do
 		for _, button in ipairs(row) do
@@ -463,7 +463,7 @@ end
 
 local function UpdateSuggestions()
 	local names = {};
-	if suggesting and S.target and S.text ~= "" then
+	if S.suggesting and S.target and S.text ~= "" then
 		-- Protected: a lookup that fails leaves no names, never a key press half done (and /gk names says why).
 		local ok, results = pcall(C_AutoComplete.GetAutoCompleteResults, S.text, MAX_SUGGESTIONS + 1, S.cursor, true, unpack(S.target.autoCompleteParams));
 		results = ok and type(results) == "table" and results or {};
@@ -574,7 +574,7 @@ local function UpdateLabels()
 			for _, row in ipairs(rows) do
 				for _, button in ipairs(row) do
 					if not SPECIAL_KEYS[button.key] then
-						button:SetText(shift and button.key:upper() or button.key);
+						button:SetText(S.shift and button.key:upper() or button.key);
 					end
 				end
 			end
@@ -582,7 +582,7 @@ local function UpdateLabels()
 	end
 	for _, shiftKey in ipairs(S.keyboard.ShiftKeys) do
 		shiftKey:LockHighlight();
-		if not shift then
+		if not S.shift then
 			shiftKey:UnlockHighlight();
 		end
 	end
@@ -662,19 +662,19 @@ end
 
 -- The page's keys, the chat key only for chat; each row centred over the keys it shows.
 local function Layout()
-	local top = suggesting and 1 or 0;
+	local top = S.suggesting and 1 or 0;
 	local nameWidth = (S.keyboard:GetWidth() - 28 - (MAX_SUGGESTIONS - 1) * GAP) / MAX_SUGGESTIONS;
 	for i, button in ipairs(suggestions) do
 		button:SetSize(nameWidth, KEY_HEIGHT);
 		button:ClearAllPoints();
 		button:SetPoint("TOPLEFT", 14 + (i - 1) * (nameWidth + GAP), -56);
-		button:SetShown(suggesting and button.suggestion ~= nil);
+		button:SetShown(S.suggesting and button.suggestion ~= nil);
 	end
 	for name, rows in pairs(keys) do
 		for r, row in ipairs(rows) do
 			local width = 0;
 			for _, button in ipairs(row) do
-				button:SetShown(name == page and (button.key ~= CHAT or S.isChat));
+				button:SetShown(name == S.page and (button.key ~= CHAT or S.isChat));
 				if button:IsShown() then
 					width = width + button.width + (width > 0 and GAP or 0);
 				end
@@ -689,7 +689,7 @@ local function Layout()
 			end
 		end
 	end
-	S.keyboard:SetHeight(84 + (#keys[page] + top) * (KEY_HEIGHT + GAP));
+	S.keyboard:SetHeight(84 + (#keys[S.page] + top) * (KEY_HEIGHT + GAP));
 end
 
 -- The chat types there are to use, then the whispers: the one this chat was in (opened from a name, say)
@@ -762,7 +762,7 @@ local function VisibleChatKey()
 end
 
 local function HideChatList()
-	picking = false;
+	S.picking = false;
 	S.keyboard.ChatList:Hide();
 	for _, choice in ipairs(chatChoices) do
 		choice:Hide();
@@ -771,7 +771,7 @@ end
 
 -- Back to the keys, the cursor on the chat key.
 local function CloseChatList()
-	if picking then
+	if S.picking then
 		HideChatList();
 		RefreshNavigation();
 		PointAt(VisibleChatKey());
@@ -802,7 +802,7 @@ local function OpenChatList(chatKey)
 		end
 	end
 	frame:Show();
-	picking = true;
+	S.picking = true;
 	RefreshNavigation();
 	PointAt(current or chatChoices[1]);
 	if CanSteer() and SmartNavigation_AddJumpNavigationOverride and SMART_NAV_INPUT_DIRECTION then
@@ -811,7 +811,7 @@ local function OpenChatList(chatKey)
 end
 
 local function PickChat(choice)
-	if picking and choice.entry and S.isChat and S.target then
+	if S.picking and choice.entry and S.isChat and S.target then
 		SetChat(choice.entry);
 	end
 	CloseChatList();
@@ -843,7 +843,7 @@ local function Press(button)
 		return; -- (closed in combat: a click that gets here anyway changes nothing - its keys can't move then)
 	end
 	local key = button.key;
-	if picking then
+	if S.picking then
 		CloseChatList(); -- (a key pressed past it - X, Y, the mouse: the list goes; the chat key: just that)
 		if key == CHAT then
 			return;
@@ -855,10 +855,10 @@ local function Press(button)
 	elseif key == SPACE then
 		Insert(" ");
 	elseif key == SHIFT then
-		shift = not shift;
+		S.shift = not S.shift;
 		UpdateLabels();
 	elseif key == SYMBOLS or key == LETTERS then
-		page = key == SYMBOLS and "symbols" or LettersPage();
+		S.page = key == SYMBOLS and "symbols" or LettersPage();
 		Layout();
 		RefreshNavigation();
 	elseif key == CHAT then
@@ -866,9 +866,9 @@ local function Press(button)
 			OpenChatList(button);
 		end
 	else
-		Insert(shift and key:upper() or key);
-		if shift then
-			shift = false;
+		Insert(S.shift and key:upper() or key);
+		if S.shift then
+			S.shift = false;
 			UpdateLabels();
 		end
 	end
@@ -1043,7 +1043,7 @@ local function EnterPostClick(button)
 		S.text, S.cursor = "", 0; -- sent: no line to keep
 		if not Setting("closeOnEnter") then
 			-- Staying open: the next line, in the same chat.
-			shift = Setting("chatCapital");
+			S.shift = Setting("chatCapital");
 			UpdateLabels();
 			UpdatePreview();
 			return;
@@ -1100,14 +1100,14 @@ local function APreClick(button, _, down)
 	end
 	if down then
 		aDownAt = GetTime(); -- (it acts on the release, set then)
-		if not picking then
+		if not S.picking then
 			HoldRing(true);
 		end
 		return;
 	end
 	HoldRing(false);
 	local current = SmartNavigation and SmartNavigation.GetCurrentButton and SmartNavigation:GetCurrentButton();
-	local held = not picking and aDownAt and GetTime() - aDownAt >= HoldTime(); -- (in the chat list: a pick)
+	local held = not S.picking and aDownAt and GetTime() - aDownAt >= HoldTime(); -- (in the chat list: a pick)
 	if not aDownAt then
 		button.action = nil; -- a release whose press went elsewhere (A that opened the keyboard)
 	elseif held or (current and current.key == ENTER) then
@@ -1220,7 +1220,7 @@ end
 
 -- Held long enough: the Enter keys light up (letting go sends).
 local function UpdateHoldHint()
-	local lit = not picking and aDownAt ~= nil and GetTime() - aDownAt >= HoldTime();
+	local lit = not S.picking and aDownAt ~= nil and GetTime() - aDownAt >= HoldTime();
 	if S.keyboard and S.keyboard.EnterKeys and S.keyboard.holdLit ~= lit then
 		S.keyboard.holdLit = lit;
 		for _, enterKey in ipairs(S.keyboard.EnterKeys) do
@@ -1365,7 +1365,7 @@ local function CreateKeyboard()
 	S.keyboard.CloseButton:SetScript("OnClick", Close);
 	-- Controller B: go back, rather than Blizzard's gamepad UI pressing the close button.
 	function S.keyboard:SmartNavigationCloseHandler()
-		if picking then
+		if S.picking then
 			CloseChatList(); -- (from the chat list: back to the keys)
 		else
 			Close();
@@ -1446,7 +1446,7 @@ local function SetTarget(box)
 	S.whisperedTo = nil; -- (the box's own, if it's in one, at the next preview)
 	HideChatList();
 	S.isChat = box.chatFrame ~= nil;
-	suggesting = Setting("names") and LooksUpNames(box);
+	S.suggesting = Setting("names") and LooksUpNames(box);
 	if S.isChat then
 		-- The chat box empties and goes back to its usual chat as the controller moves to the keyboard; the
 		-- line and its chat stay here.
@@ -1460,8 +1460,8 @@ local function SetTarget(box)
 		S.text = box:GetText() or "";
 	end
 	S.cursor = Utf8Length(S.text);
-	page = box:IsNumeric() and "numbers" or LettersPage();
-	shift = S.isChat and S.text == "" and Setting("chatCapital");
+	S.page = box:IsNumeric() and "numbers" or LettersPage();
+	S.shift = S.isChat and S.text == "" and Setting("chatCapital");
 end
 
 local function Open(box)
@@ -1711,8 +1711,8 @@ end
 
 -- A change of layout shows at once if the keyboard is up on its letters.
 local function ApplyLayout()
-	if S.keyboard and S.keyboard:IsShown() and page ~= "symbols" and page ~= "numbers" and not InCombatLockdown() then
-		page = LettersPage();
+	if S.keyboard and S.keyboard:IsShown() and S.page ~= "symbols" and S.page ~= "numbers" and not InCombatLockdown() then
+		S.page = LettersPage();
 		Layout();
 		UpdateLabels();
 		RefreshNavigation();
@@ -1932,8 +1932,8 @@ local function EditModeEnter()
 		CreateEditModeOverlay();
 	end
 	previewing = true;
-	S.target, S.isChat, suggesting = nil, false, false;
-	S.text, S.cursor, page, shift = "", 0, LettersPage(), false;
+	S.target, S.isChat, S.suggesting = nil, false, false;
+	S.text, S.cursor, S.page, S.shift = "", 0, LettersPage(), false;
 	S.keyboard:SetFrameStrata(EDIT_MODE_STRATA);
 	Position(nil);
 	S.keyboard:Show();
