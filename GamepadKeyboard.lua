@@ -1177,6 +1177,9 @@ local function ClearShortcuts()
 	if shortcutsBound and not InCombatLockdown() then
 		ClearOverrideBindings(keyboard);
 		shortcutsBound = false;
+		-- A held as the controller left: its release goes to the controller UI now, so the hold ends here.
+		aDownAt = nil;
+		HoldRing(false);
 	end
 end
 

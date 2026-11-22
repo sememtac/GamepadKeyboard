@@ -751,6 +751,19 @@ check(not ring.holding, "closed while A is held: the ring stops")
 for _ = 1, 40 do poll() end
 openChat("SAY"); poll(); poll()
 check(not key("ENTER").locked, "closed while A is held: not a hold the next time it opens")
+-- LT / RT to another window while A is held: A is the controller UI's again, its release goes there - the hold
+-- ends with it.
+type("go")
+local holdOther = W.CreateFrame("Frame", "HoldOtherPanel", UIParent)
+held.PAD1 = true; secureClick(GamepadKeyboardAButton, true); poll()
+manager:FrameShown(holdOther); poll()
+held.PAD1 = nil
+for _ = 1, 40 do poll() end
+check(boundTo("PAD1") ~= "CLICK GamepadKeyboardAButton:LeftButton" and not ring.holding and not key("ENTER").locked,
+	"A held, then LT / RT to another window: the ring stops and Enter doesn't light (the release goes to that window)")
+focus(kb); manager:FrameHidden(holdOther); poll()
+navCurrent = key("o"); pressA()
+check(preview() == "Goo" .. CARET and kb:IsShown(), "...back on the keyboard: a tap types as ever")
 endChat()
 -- A name box: holding A is its own Enter.
 local holdBox = W.CreateFrame("EditBox", nil, UIParent, "InputBoxTemplate")
