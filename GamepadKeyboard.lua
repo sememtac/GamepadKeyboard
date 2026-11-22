@@ -40,7 +40,13 @@
 -- In combat Blizzard's gamepad UI takes no addon windows, so the keyboard doesn't open (a real keyboard
 -- types as always), and an open one closes when combat starts; the text stays in the box.
 
-local ADDON_NAME = ...;
+local ADDON_NAME, ns = ...;
+
+-- The keyboard's state that its parts share - what it types into, the line, the page, the chat - in one table
+-- (read at each use: never copied into a local that would keep an old value).
+local S = {};
+ns.S = S;
+S.keyboard = nil;
 
 local KEY_WIDTH, KEY_HEIGHT, GAP = 36, 30, 4;
 
@@ -89,7 +95,6 @@ local PAGES = {
 -- A page whose keys are all one width (in keys): the numpad's grid.
 local PAGE_KEY_UNITS = { numbers = 2 };
 
-local keyboard;
 local keys = {}; -- page -> rows of key buttons
 local page = "qwerty"; -- a letters page (the layout's), "symbols", or "numbers" (a box of numbers only)
 local target; -- the text box being typed into
@@ -180,7 +185,7 @@ local function IsListed(manager)
 		return nil;
 	end
 	for _, shown in ipairs(manager.shownFrames) do
-		if shown == keyboard then
+		if shown == S.keyboard then
 			return true;
 		end
 	end
@@ -192,7 +197,7 @@ local function Register()
 	if registered or not manager or InCombatLockdown() or not UsesGamepadUI() then
 		return;
 	end
-	local ok = pcall(manager.HandlePopupShown, manager, keyboard);
+	local ok = pcall(manager.HandlePopupShown, manager, S.keyboard);
 	local listed = IsListed(manager);
 	registered = listed or (listed == nil and ok) or false;
 end
@@ -205,7 +210,7 @@ local function Unregister()
 	-- Handing the controller back focuses the box again: not a request for the keyboard (here, not only in
 	-- OnHide - after combat a hide refused as it started is retried, and the box mustn't reopen it unlisted).
 	closing = true;
-	local ok = pcall(manager.HandlePopupHide, manager, keyboard);
+	local ok = pcall(manager.HandlePopupHide, manager, S.keyboard);
 	closing = false;
 	local listed = IsListed(manager);
 	registered = not (listed == false or (listed == nil and ok));
@@ -278,7 +283,7 @@ local function RefreshNavigation()
 		return;
 	end
 	if SmartNavigation and SmartNavigation.RefreshButtonGroups then
-		pcall(SmartNavigation.RefreshButtonGroups, SmartNavigation, keyboard);
+		pcall(SmartNavigation.RefreshButtonGroups, SmartNavigation, S.keyboard);
 	end
 	if not (SmartNavigation_AddJumpNavigationOverride and SMART_NAV_INPUT_DIRECTION) then
 		return;
@@ -310,21 +315,21 @@ local function PointAt(button)
 	if not (CanSteer() and SmartNavigation and SmartNavigation.SetTargetButtonForFrame) then
 		return;
 	end
-	pcall(SmartNavigation.SetTargetButtonForFrame, SmartNavigation, keyboard, button);
-	pcall(SmartNavigation.SetTargetButtonForFrame, SmartNavigation, keyboard, nil);
+	pcall(SmartNavigation.SetTargetButtonForFrame, SmartNavigation, S.keyboard, button);
+	pcall(SmartNavigation.SetTargetButtonForFrame, SmartNavigation, S.keyboard, nil);
 end
 
 -- Blizzard's LT / RT / View jump hints and focus glow (FocusFramesInterfaceTemplate): lift the hints to our
 -- strata, and give the glow the frame art Blizzard uses for plain panels.
 local function SetUpFocusVisuals()
 	for _, key in ipairs({ "LeftJumpHint", "RightJumpHint", "FocusJumpHint" }) do
-		if keyboard[key] then
-			keyboard[key]:SetFrameStrata(keyboard:GetFrameStrata());
+		if S.keyboard[key] then
+			S.keyboard[key]:SetFrameStrata(S.keyboard:GetFrameStrata());
 		end
 	end
-	if keyboard.FrameGlow and keyboard.FrameGlow.OnLoad then
-		keyboard.layoutType = "ButtonFrameTemplateNoPortrait";
-		keyboard.FrameGlow:OnLoad();
+	if S.keyboard.FrameGlow and S.keyboard.FrameGlow.OnLoad then
+		S.keyboard.layoutType = "ButtonFrameTemplateNoPortrait";
+		S.keyboard.FrameGlow:OnLoad();
 	end
 end
 
@@ -491,7 +496,7 @@ local function UpdateChatKey()
 		return;
 	end
 	local label = ChatLabel();
-	for _, chatKey in ipairs(keyboard.ChatKeys) do
+	for _, chatKey in ipairs(S.keyboard.ChatKeys) do
 		if chatKey:GetText() ~= label then
 			chatKey:SetText(label);
 		end
@@ -520,7 +525,7 @@ end
 -- Over chat, the line's chat heads it - "Guild:", "To Bob:" - in the chat's colour, as Blizzard's chat box
 -- heads its own.
 local function UpdateChatHeader()
-	local header = keyboard.ChatHeader;
+	local header = S.keyboard.ChatHeader;
 	local label = isChat and target and (ChatLabel() .. ":") or nil;
 	local info = label and ChatTypeInfo
 		and ChatTypeInfo[chat.chatType == "CHANNEL" and ("CHANNEL" .. tostring(chat.channelTarget)) or chat.chatType];
@@ -528,20 +533,20 @@ local function UpdateChatHeader()
 	header:SetText(label or "");
 	header:SetTextColor(r, g, b);
 	header:SetShown(label ~= nil);
-	keyboard.Preview:ClearAllPoints();
+	S.keyboard.Preview:ClearAllPoints();
 	if label then
-		keyboard.Preview:SetPoint("TOPLEFT", header, "TOPRIGHT", 6, 0);
+		S.keyboard.Preview:SetPoint("TOPLEFT", header, "TOPRIGHT", 6, 0);
 	else
-		keyboard.Preview:SetPoint("TOPLEFT", 16, -32);
+		S.keyboard.Preview:SetPoint("TOPLEFT", 16, -32);
 	end
-	keyboard.Preview:SetPoint("TOPRIGHT", -16, -32);
+	S.keyboard.Preview:SetPoint("TOPRIGHT", -16, -32);
 end
 
 local function UpdatePreview()
 	UpdateChatHeader();
 	local boxLine = BoxLine();
 	if boxLine then
-		keyboard.Preview:SetText(boxLine .. BOX_LINE_HINT);
+		S.keyboard.Preview:SetText(boxLine .. BOX_LINE_HINT);
 		UpdateChatKey();
 		UpdateSuggestions();
 		return;
@@ -558,7 +563,7 @@ local function UpdatePreview()
 		local _, line = before:gsub("\n", "");
 		shown = shown .. LINE_FORMAT:format(line + 1, lines + 1);
 	end
-	keyboard.Preview:SetText(shown);
+	S.keyboard.Preview:SetText(shown);
 	UpdateChatKey();
 	UpdateSuggestions();
 end
@@ -575,18 +580,18 @@ local function UpdateLabels()
 			end
 		end
 	end
-	for _, shiftKey in ipairs(keyboard.ShiftKeys) do
+	for _, shiftKey in ipairs(S.keyboard.ShiftKeys) do
 		shiftKey:LockHighlight();
 		if not shift then
 			shiftKey:UnlockHighlight();
 		end
 	end
 	local enterLabel = target and not isChat and target:IsMultiLine() and "New line" or "Enter";
-	for _, enterKey in ipairs(keyboard.EnterKeys) do
+	for _, enterKey in ipairs(S.keyboard.EnterKeys) do
 		enterKey:SetText(enterLabel);
 	end
-	if keyboard.HoldPrompt then
-		keyboard.HoldPrompt.text:SetText(enterLabel);
+	if S.keyboard.HoldPrompt then
+		S.keyboard.HoldPrompt.text:SetText(enterLabel);
 	end
 end
 
@@ -658,7 +663,7 @@ end
 -- The page's keys, the chat key only for chat; each row centred over the keys it shows.
 local function Layout()
 	local top = suggesting and 1 or 0;
-	local nameWidth = (keyboard:GetWidth() - 28 - (MAX_SUGGESTIONS - 1) * GAP) / MAX_SUGGESTIONS;
+	local nameWidth = (S.keyboard:GetWidth() - 28 - (MAX_SUGGESTIONS - 1) * GAP) / MAX_SUGGESTIONS;
 	for i, button in ipairs(suggestions) do
 		button:SetSize(nameWidth, KEY_HEIGHT);
 		button:ClearAllPoints();
@@ -674,7 +679,7 @@ local function Layout()
 					width = width + button.width + (width > 0 and GAP or 0);
 				end
 			end
-			local x = (keyboard:GetWidth() - width) / 2;
+			local x = (S.keyboard:GetWidth() - width) / 2;
 			for _, button in ipairs(row) do
 				if button:IsShown() then
 					button:ClearAllPoints();
@@ -684,7 +689,7 @@ local function Layout()
 			end
 		end
 	end
-	keyboard:SetHeight(84 + (#keys[page] + top) * (KEY_HEIGHT + GAP));
+	S.keyboard:SetHeight(84 + (#keys[page] + top) * (KEY_HEIGHT + GAP));
 end
 
 -- The chat types there are to use, then the whispers: the one this chat was in (opened from a name, say)
@@ -749,7 +754,7 @@ local function ChatChoiceText(to)
 end
 
 local function VisibleChatKey()
-	for _, chatKey in ipairs(keyboard.ChatKeys) do
+	for _, chatKey in ipairs(S.keyboard.ChatKeys) do
 		if chatKey:IsVisible() then
 			return chatKey;
 		end
@@ -758,7 +763,7 @@ end
 
 local function HideChatList()
 	picking = false;
-	keyboard.ChatList:Hide();
+	S.keyboard.ChatList:Hide();
 	for _, choice in ipairs(chatChoices) do
 		choice:Hide();
 	end
@@ -775,10 +780,10 @@ end
 
 local function OpenChatList(chatKey)
 	local list = ChatTypesToUse();
-	local frame = keyboard.ChatList;
+	local frame = S.keyboard.ChatList;
 	-- Over the keys, and over the controller UI's focus glow round the keyboard (a frame level of its own,
 	-- far above the keyboard's) where the list goes past the keyboard's edge.
-	frame:SetFrameLevel(math.max(keyboard:GetFrameLevel() + 10, keyboard.FrameGlow and keyboard.FrameGlow:GetFrameLevel() + 1 or 0));
+	frame:SetFrameLevel(math.max(S.keyboard:GetFrameLevel() + 10, S.keyboard.FrameGlow and S.keyboard.FrameGlow:GetFrameLevel() + 1 or 0));
 	frame:SetSize(chatKey.width + 12, #list * CHOICE_STEP - (CHOICE_STEP - CHOICE_HEIGHT) + 12);
 	frame:ClearAllPoints();
 	frame:SetPoint("BOTTOMLEFT", chatKey, "TOPLEFT", -6, GAP); -- up from the key (kept on the screen)
@@ -813,8 +818,8 @@ local function PickChat(choice)
 end
 
 local function Close()
-	if keyboard and keyboard:IsShown() then
-		keyboard:Hide();
+	if S.keyboard and S.keyboard:IsShown() then
+		S.keyboard:Hide();
 	end
 end
 
@@ -1076,7 +1081,7 @@ local aDownAt; -- when A went down on the keyboard (nil when it isn't down)
 -- radially over the hold). It fills while A is down on the keyboard; at full it's back to its ring, and the
 -- lit Enter key shows that letting go sends.
 local function HoldRing(holding)
-	local prompt = keyboard and keyboard.HoldPrompt;
+	local prompt = S.keyboard and S.keyboard.HoldPrompt;
 	if prompt then
 		if holding then
 			prompt.icon:BeginHold(HoldTime());
@@ -1127,7 +1132,7 @@ local function APostClick(button, _, down)
 	button.action, button.tapped = nil, nil;
 	if action == "enter" then
 		EnterPostClick(button);
-	elseif action == "tap" and tapped and tapped:GetParent() == keyboard and tapped:IsVisible() and tapped:IsEnabled() then
+	elseif action == "tap" and tapped and tapped:GetParent() == S.keyboard and tapped:IsVisible() and tapped:IsEnabled() then
 		-- (only this keyboard's own keys: anything else clicked from here would run as this addon's doing)
 		tapped:Click();
 	end
@@ -1149,7 +1154,7 @@ local function CreateKey(key, pageUnits)
 	local button;
 	if key == ENTER then
 		-- Blizzard's secure macro action, on release (a controller's A and a mouse click both act).
-		button = CreateFrame("Button", name, keyboard, "SecureActionButtonTemplate, UIPanelButtonTemplate");
+		button = CreateFrame("Button", name, S.keyboard, "SecureActionButtonTemplate, UIPanelButtonTemplate");
 		button:RegisterForClicks("AnyUp");
 		button:SetAttribute("type", "macro");
 		button:SetAttribute("useOnKeyDown", false);
@@ -1157,7 +1162,7 @@ local function CreateKey(key, pageUnits)
 		button:SetScript("PreClick", EnterPreClick);
 		button:SetScript("PostClick", EnterPostClick);
 	else
-		button = CreateFrame("Button", name, keyboard, "UIPanelButtonTemplate");
+		button = CreateFrame("Button", name, S.keyboard, "UIPanelButtonTemplate");
 		button:SetScript("OnClick", Press);
 	end
 	button.width = units * KEY_WIDTH + (units - 1) * GAP;
@@ -1182,16 +1187,16 @@ local SHORTCUTS = {
 local shortcutsBound = false;
 
 local function BindShortcuts()
-	ClearOverrideBindings(keyboard);
+	ClearOverrideBindings(S.keyboard);
 	for button, keyName in pairs(SHORTCUTS) do
-		SetOverrideBindingClick(keyboard, true, button, keyName);
+		SetOverrideBindingClick(S.keyboard, true, button, keyName);
 	end
 	shortcutsBound = true;
 end
 
 local function ClearShortcuts()
 	if shortcutsBound and not InCombatLockdown() then
-		ClearOverrideBindings(keyboard);
+		ClearOverrideBindings(S.keyboard);
 		shortcutsBound = false;
 		-- A held as the controller left: its release goes to the controller UI now, so the hold ends here.
 		aDownAt = nil;
@@ -1204,7 +1209,7 @@ local function UpdateShortcuts()
 		return;
 	end
 	local manager = GetManager();
-	if keyboard and keyboard:IsShown() and manager and manager.focusedFrame == keyboard then
+	if S.keyboard and S.keyboard:IsShown() and manager and manager.focusedFrame == S.keyboard then
 		if not shortcutsBound then
 			BindShortcuts();
 		end
@@ -1216,9 +1221,9 @@ end
 -- Held long enough: the Enter keys light up (letting go sends).
 local function UpdateHoldHint()
 	local lit = not picking and aDownAt ~= nil and GetTime() - aDownAt >= HoldTime();
-	if keyboard and keyboard.EnterKeys and keyboard.holdLit ~= lit then
-		keyboard.holdLit = lit;
-		for _, enterKey in ipairs(keyboard.EnterKeys) do
+	if S.keyboard and S.keyboard.EnterKeys and S.keyboard.holdLit ~= lit then
+		S.keyboard.holdLit = lit;
+		for _, enterKey in ipairs(S.keyboard.EnterKeys) do
 			if lit then
 				enterKey:LockHighlight();
 			else
@@ -1229,7 +1234,7 @@ local function UpdateHoldHint()
 end
 
 local function BoundOver(owner, _, button)
-	if shortcutsBound and owner ~= keyboard and SHORTCUTS[button] and not InCombatLockdown() then
+	if shortcutsBound and owner ~= S.keyboard and SHORTCUTS[button] and not InCombatLockdown() then
 		BindShortcuts();
 	end
 end
@@ -1237,7 +1242,7 @@ hooksecurefunc("SetOverrideBindingClick", BoundOver);
 hooksecurefunc("SetOverrideBinding", BoundOver);
 
 local function CreatePrompt(key, label, anchorTo, isHold)
-	local icon = CreateFrame("Frame", nil, keyboard, "InputIconTextureFrameTemplate");
+	local icon = CreateFrame("Frame", nil, S.keyboard, "InputIconTextureFrameTemplate");
 	icon:SetSize(22, 22);
 	icon:SetInputKey(key);
 	if isHold then
@@ -1248,7 +1253,7 @@ local function CreatePrompt(key, label, anchorTo, isHold)
 	else
 		icon:SetPoint("BOTTOMLEFT", 14, 10);
 	end
-	local caption = keyboard:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall");
+	local caption = S.keyboard:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall");
 	caption:SetPoint("LEFT", icon, "RIGHT", 3, 0);
 	caption:SetText(label);
 	return { icon = icon, text = caption };
@@ -1256,39 +1261,39 @@ end
 
 -- Where it was dragged to, in UIParent's units (see Position).
 local function SavePosition()
-	keyboard:StopMovingOrSizing();
-	local point, _, relativePoint, x, y = keyboard:GetPoint();
-	local scale = keyboard:GetScale();
+	S.keyboard:StopMovingOrSizing();
+	local point, _, relativePoint, x, y = S.keyboard:GetPoint();
+	local scale = S.keyboard:GetScale();
 	DB().position = { point = point, relativePoint = relativePoint, x = x * scale, y = y * scale };
 end
 
 local function CreateKeyboard()
-	keyboard = CreateFrame("Frame", "GamepadKeyboardFrame", UIParent, "BasicFrameTemplateWithInset, FocusFramesInterfaceTemplate");
-	keyboard:SetSize(11 * KEY_WIDTH + 10 * GAP + 28, 260);
-	keyboard:SetFrameStrata("FULLSCREEN_DIALOG");
-	keyboard:SetClampedToScreen(true);
-	keyboard:EnableMouse(true);
+	S.keyboard = CreateFrame("Frame", "GamepadKeyboardFrame", UIParent, "BasicFrameTemplateWithInset, FocusFramesInterfaceTemplate");
+	S.keyboard:SetSize(11 * KEY_WIDTH + 10 * GAP + 28, 260);
+	S.keyboard:SetFrameStrata("FULLSCREEN_DIALOG");
+	S.keyboard:SetClampedToScreen(true);
+	S.keyboard:EnableMouse(true);
 	-- Drag it with the mouse; it opens there from then on (/gk reset forgets it).
-	keyboard:SetMovable(true);
-	keyboard:RegisterForDrag("LeftButton");
-	keyboard:SetScript("OnDragStart", keyboard.StartMoving);
-	keyboard:SetScript("OnDragStop", SavePosition);
-	keyboard:Hide();
+	S.keyboard:SetMovable(true);
+	S.keyboard:RegisterForDrag("LeftButton");
+	S.keyboard:SetScript("OnDragStart", S.keyboard.StartMoving);
+	S.keyboard:SetScript("OnDragStop", SavePosition);
+	S.keyboard:Hide();
 	tinsert(UISpecialFrames, "GamepadKeyboardFrame");
 
-	keyboard.Title = keyboard:CreateFontString(nil, "OVERLAY", "GameFontNormal");
-	keyboard.Title:SetPoint("TOP", 0, -5);
-	keyboard.Title:SetText("Keyboard");
-	keyboard.ChatHeader = keyboard:CreateFontString(nil, "OVERLAY", "GameFontHighlight");
-	keyboard.ChatHeader:SetPoint("TOPLEFT", 16, -32);
-	keyboard.Preview = keyboard:CreateFontString(nil, "OVERLAY", "GameFontHighlight");
-	keyboard.Preview:SetPoint("TOPLEFT", 16, -32);
-	keyboard.Preview:SetPoint("TOPRIGHT", -16, -32);
-	keyboard.Preview:SetJustifyH("LEFT");
+	S.keyboard.Title = S.keyboard:CreateFontString(nil, "OVERLAY", "GameFontNormal");
+	S.keyboard.Title:SetPoint("TOP", 0, -5);
+	S.keyboard.Title:SetText("Keyboard");
+	S.keyboard.ChatHeader = S.keyboard:CreateFontString(nil, "OVERLAY", "GameFontHighlight");
+	S.keyboard.ChatHeader:SetPoint("TOPLEFT", 16, -32);
+	S.keyboard.Preview = S.keyboard:CreateFontString(nil, "OVERLAY", "GameFontHighlight");
+	S.keyboard.Preview:SetPoint("TOPLEFT", 16, -32);
+	S.keyboard.Preview:SetPoint("TOPRIGHT", -16, -32);
+	S.keyboard.Preview:SetJustifyH("LEFT");
 
-	keyboard.ChatKeys = {};
-	keyboard.EnterKeys = {};
-	keyboard.ShiftKeys = {};
+	S.keyboard.ChatKeys = {};
+	S.keyboard.EnterKeys = {};
+	S.keyboard.ShiftKeys = {};
 	for name, layout in pairs(PAGES) do
 		keys[name] = {};
 		for r, rowKeys in ipairs(layout) do
@@ -1296,11 +1301,11 @@ local function CreateKeyboard()
 			for c, key in ipairs(rowKeys) do
 				row[c] = CreateKey(key, PAGE_KEY_UNITS[name]);
 				if key == SHIFT then
-					table.insert(keyboard.ShiftKeys, row[c]);
+					table.insert(S.keyboard.ShiftKeys, row[c]);
 				elseif key == CHAT then
-					table.insert(keyboard.ChatKeys, row[c]);
+					table.insert(S.keyboard.ChatKeys, row[c]);
 				elseif key == ENTER then
-					table.insert(keyboard.EnterKeys, row[c]);
+					table.insert(S.keyboard.EnterKeys, row[c]);
 				end
 			end
 			keys[name][r] = row;
@@ -1308,7 +1313,7 @@ local function CreateKeyboard()
 	end
 
 	for i = 1, MAX_SUGGESTIONS do
-		local button = CreateFrame("Button", nil, keyboard, "UIPanelButtonTemplate");
+		local button = CreateFrame("Button", nil, S.keyboard, "UIPanelButtonTemplate");
 		button:SetScript("OnClick", ChooseSuggestion);
 		button:Hide();
 		suggestions[i] = button;
@@ -1316,20 +1321,20 @@ local function CreateKeyboard()
 
 	-- The chat list: its backing (the mouse doesn't reach the keys through it), its buttons the keyboard's
 	-- own, as keys are, set on it.
-	keyboard.ChatList = CreateFrame("Frame", nil, keyboard, "TooltipBackdropTemplate");
-	keyboard.ChatList:EnableMouse(true);
-	keyboard.ChatList:SetClampedToScreen(true);
-	keyboard.ChatList:Hide();
+	S.keyboard.ChatList = CreateFrame("Frame", nil, S.keyboard, "TooltipBackdropTemplate");
+	S.keyboard.ChatList:EnableMouse(true);
+	S.keyboard.ChatList:SetClampedToScreen(true);
+	S.keyboard.ChatList:Hide();
 	for i = 1, #CHAT_TYPES + 2 do -- (and the two whispers: see ChatTypesToUse)
-		local choice = CreateFrame("Button", nil, keyboard, "UIPanelButtonTemplate");
+		local choice = CreateFrame("Button", nil, S.keyboard, "UIPanelButtonTemplate");
 		choice:SetScript("OnClick", PickChat);
 		choice:Hide();
 		chatChoices[i] = choice;
 	end
-	keyboard.ChatChoices = chatChoices;
+	S.keyboard.ChatChoices = chatChoices;
 
 	-- A presses this one (hidden, secure: Enter's macro line runs from it).
-	local aButton = CreateFrame("Button", "GamepadKeyboardAButton", keyboard, "SecureActionButtonTemplate");
+	local aButton = CreateFrame("Button", "GamepadKeyboardAButton", S.keyboard, "SecureActionButtonTemplate");
 	aButton:RegisterForClicks("AnyDown", "AnyUp");
 	aButton:SetAttribute("type", "macro");
 	aButton:SetAttribute("useOnKeyDown", false);
@@ -1340,26 +1345,26 @@ local function CreateKeyboard()
 
 	-- LB / RB press these (hidden: not keys to move to).
 	for name, step in pairs({ GamepadKeyboardCursorLeft = -1, GamepadKeyboardCursorRight = 1 }) do
-		local button = CreateFrame("Button", name, keyboard);
+		local button = CreateFrame("Button", name, S.keyboard);
 		button:SetScript("OnClick", function()
 			MoveCursor(step);
 		end);
 		button:Hide();
 	end
 
-	keyboard.Prompts = { CreatePrompt(GAMEPAD_FACE_BOTTOM, "Type") };
-	keyboard.HoldPrompt = CreatePrompt(GAMEPAD_FACE_BOTTOM, "Enter", keyboard.Prompts[1].text, true);
-	table.insert(keyboard.Prompts, keyboard.HoldPrompt);
+	S.keyboard.Prompts = { CreatePrompt(GAMEPAD_FACE_BOTTOM, "Type") };
+	S.keyboard.HoldPrompt = CreatePrompt(GAMEPAD_FACE_BOTTOM, "Enter", S.keyboard.Prompts[1].text, true);
+	table.insert(S.keyboard.Prompts, S.keyboard.HoldPrompt);
 	for _, prompt in ipairs({
 		{ GAMEPAD_FACE_LEFT, "Del" }, { GAMEPAD_FACE_TOP, "Space" }, { GAMEPAD_FACE_RIGHT, "Back" },
 		{ GAMEPAD_SHOULDER_LEFT, "" }, { GAMEPAD_SHOULDER_RIGHT, "Cursor" },
 	}) do
-		table.insert(keyboard.Prompts, CreatePrompt(prompt[1], prompt[2], keyboard.Prompts[#keyboard.Prompts].text));
+		table.insert(S.keyboard.Prompts, CreatePrompt(prompt[1], prompt[2], S.keyboard.Prompts[#S.keyboard.Prompts].text));
 	end
 
-	keyboard.CloseButton:SetScript("OnClick", Close);
+	S.keyboard.CloseButton:SetScript("OnClick", Close);
 	-- Controller B: go back, rather than Blizzard's gamepad UI pressing the close button.
-	function keyboard:SmartNavigationCloseHandler()
+	function S.keyboard:SmartNavigationCloseHandler()
 		if picking then
 			CloseChatList(); -- (from the chat list: back to the keys)
 		else
@@ -1369,11 +1374,11 @@ local function CreateKeyboard()
 	end
 
 	SetUpFocusVisuals();
-	keyboard:SetScript("OnShow", function()
+	S.keyboard:SetScript("OnShow", function()
 		Layout();
 		UpdateLabels();
 		UpdatePreview();
-		for _, prompt in ipairs(keyboard.Prompts) do
+		for _, prompt in ipairs(S.keyboard.Prompts) do
 			prompt.icon:SetShown(UsesGamepadUI());
 			prompt.text:SetShown(UsesGamepadUI());
 		end
@@ -1385,7 +1390,7 @@ local function CreateKeyboard()
 	-- However it closes (Enter, B, Escape, combat): back to the window the box belongs to, which focuses the
 	-- box again - not a request for the keyboard - and the box isn't opened for again until focus moves
 	-- elsewhere or it's asked for again. A chat line not sent waits for next time.
-	keyboard:SetScript("OnHide", function()
+	S.keyboard:SetScript("OnHide", function()
 		if isChat and target then
 			KeepChatDraft();
 		end
@@ -1405,29 +1410,29 @@ end
 -- screen, below it if not; with no box (Edit Mode), the middle of the screen.
 local function Position(box)
 	local scale = Setting("scale");
-	keyboard:SetScale(scale);
-	keyboard:ClearAllPoints();
+	S.keyboard:SetScale(scale);
+	S.keyboard:ClearAllPoints();
 	local saved = DB().position;
 	if saved then
-		keyboard:SetPoint(saved.point, UIParent, saved.relativePoint, saved.x / scale, saved.y / scale);
+		S.keyboard:SetPoint(saved.point, UIParent, saved.relativePoint, saved.x / scale, saved.y / scale);
 		return;
 	end
 	if not box then
-		keyboard:SetPoint("CENTER");
+		S.keyboard:SetPoint("CENTER");
 		return;
 	end
 	if box.chatFrame then
-		keyboard:SetPoint("BOTTOMLEFT", box.chatFrame, "BOTTOMRIGHT", 24, 0);
+		S.keyboard:SetPoint("BOTTOMLEFT", box.chatFrame, "BOTTOMRIGHT", 24, 0);
 		return;
 	end
 	local _, y = box:GetCenter();
 	local screenHeight = UIParent:GetHeight();
 	if y and screenHeight and screenHeight > 0 and y > screenHeight / 2 then
-		keyboard:SetPoint("TOP", box, "BOTTOM", 0, -8);
+		S.keyboard:SetPoint("TOP", box, "BOTTOM", 0, -8);
 	elseif y then
-		keyboard:SetPoint("BOTTOM", box, "TOP", 0, 8);
+		S.keyboard:SetPoint("BOTTOM", box, "TOP", 0, 8);
 	else
-		keyboard:SetPoint("CENTER");
+		S.keyboard:SetPoint("CENTER");
 	end
 end
 
@@ -1460,12 +1465,12 @@ local function SetTarget(box)
 end
 
 local function Open(box)
-	if not keyboard then
+	if not S.keyboard then
 		CreateKeyboard();
 	end
 	SetTarget(box);
 	Position(box);
-	keyboard:Show();
+	S.keyboard:Show();
 end
 
 -- The controller asked if one of its buttons is down now (A on a text box) or was what the player pressed
@@ -1599,7 +1604,7 @@ local function ShouldOpen(box)
 		and not InCombatLockdown()
 		and UsesGamepadUI()
 		and GetManager() ~= nil
-		and not (keyboard and keyboard:IsShown())
+		and not (S.keyboard and S.keyboard:IsShown())
 		and box:IsObjectType("EditBox")
 		and box:IsVisible()) then
 		return false;
@@ -1667,7 +1672,7 @@ hooksecurefunc(EditBoxMethods(), "SetFocus", Requested);
 -- the auction house took it as a search.
 if ChatFrameUtil and ChatFrameUtil.InsertLink and ChatFrameUtil.GetActiveWindow then
 	hooksecurefunc(ChatFrameUtil, "InsertLink", function(link)
-		if keyboard and keyboard:IsShown() and isChat and target and type(link) == "string" and link ~= ""
+		if S.keyboard and S.keyboard:IsShown() and isChat and target and type(link) == "string" and link ~= ""
 			and not ChatFrameUtil.GetActiveWindow() and not (AuctionHouseFrame and AuctionHouseFrame:IsVisible()) then
 			Insert(link);
 		end
@@ -1706,7 +1711,7 @@ end
 
 -- A change of layout shows at once if the keyboard is up on its letters.
 local function ApplyLayout()
-	if keyboard and keyboard:IsShown() and page ~= "symbols" and page ~= "numbers" and not InCombatLockdown() then
+	if S.keyboard and S.keyboard:IsShown() and page ~= "symbols" and page ~= "numbers" and not InCombatLockdown() then
 		page = LettersPage();
 		Layout();
 		UpdateLabels();
@@ -1716,7 +1721,7 @@ end
 
 -- A change of size shows at once if the keyboard is up.
 local function ApplySize()
-	if keyboard and keyboard:IsShown() and not InCombatLockdown() then
+	if S.keyboard and S.keyboard:IsShown() and not InCombatLockdown() then
 		Position(target);
 	end
 end
@@ -1888,9 +1893,9 @@ local inEditMode = false;
 -- Its selection: drag to move, mouse wheel to resize (Blizzard's selection templates call back into Edit
 -- Mode with the frame, so this one is its own).
 local function CreateEditModeOverlay()
-	local overlay = CreateFrame("Frame", nil, keyboard);
+	local overlay = CreateFrame("Frame", nil, S.keyboard);
 	overlay:SetAllPoints();
-	overlay:SetFrameLevel(keyboard:GetFrameLevel() + 50);
+	overlay:SetFrameLevel(S.keyboard:GetFrameLevel() + 50);
 	overlay:EnableMouse(true);
 	overlay:EnableMouseWheel(true);
 	overlay:RegisterForDrag("LeftButton");
@@ -1904,14 +1909,14 @@ local function CreateEditModeOverlay()
 	overlay.Hint:SetPoint("TOP", overlay.Label, "BOTTOM", 0, -6);
 	overlay.Hint:SetText("Drag to move, mouse wheel to resize");
 	overlay:SetScript("OnDragStart", function()
-		keyboard:StartMoving();
+		S.keyboard:StartMoving();
 	end);
 	overlay:SetScript("OnDragStop", SavePosition);
 	overlay:SetScript("OnMouseWheel", function(_, delta)
 		Resize(delta);
 	end);
 	overlay:Hide();
-	keyboard.EditModeOverlay = overlay;
+	S.keyboard.EditModeOverlay = overlay;
 end
 
 local function EditModeEnter()
@@ -1920,19 +1925,19 @@ local function EditModeEnter()
 		return; -- shown as combat ends, if Edit Mode is still open
 	end
 	Close(); -- typing somewhere: the text stays in the box
-	if not keyboard then
+	if not S.keyboard then
 		CreateKeyboard();
 	end
-	if not keyboard.EditModeOverlay then
+	if not S.keyboard.EditModeOverlay then
 		CreateEditModeOverlay();
 	end
 	previewing = true;
 	target, isChat, suggesting = nil, false, false;
 	text, cursor, page, shift = "", 0, LettersPage(), false;
-	keyboard:SetFrameStrata(EDIT_MODE_STRATA);
+	S.keyboard:SetFrameStrata(EDIT_MODE_STRATA);
 	Position(nil);
-	keyboard:Show();
-	keyboard.EditModeOverlay:Show();
+	S.keyboard:Show();
+	S.keyboard.EditModeOverlay:Show();
 end
 
 -- The preview goes - not in combat: the keyboard holds secure buttons, so only Blizzard's UI may hide it
@@ -1942,9 +1947,9 @@ local function EndPreview()
 		return;
 	end
 	previewing = false;
-	keyboard.EditModeOverlay:Hide();
-	keyboard:Hide();
-	keyboard:SetFrameStrata("FULLSCREEN_DIALOG");
+	S.keyboard.EditModeOverlay:Hide();
+	S.keyboard:Hide();
+	S.keyboard:SetFrameStrata("FULLSCREEN_DIALOG");
 end
 
 local function EditModeExit()
@@ -1973,10 +1978,10 @@ watcher:SetScript("OnUpdate", function()
 	end
 	-- Its box gone (the window closed, Enter hid it; for chat its window - the chat box itself can hide as it
 	-- empties): the keyboard goes too.
-	if keyboard and keyboard:IsShown() and target and not (isChat and target.chatFrame or target):IsVisible() then
+	if S.keyboard and S.keyboard:IsShown() and target and not (isChat and target.chatFrame or target):IsVisible() then
 		Close();
 	end
-	if keyboard and keyboard:IsShown() and isChat and target then
+	if S.keyboard and S.keyboard:IsShown() and isChat and target then
 		-- A whisper started elsewhere while the keyboard is up (a name's menu, the reply key): the line goes
 		-- there. Other changes are the chat box's own (emptied as it lost focus: back to its usual chat).
 		local boxChat = ChatOf(target);
@@ -1995,7 +2000,7 @@ watcher:SetScript("OnUpdate", function()
 			end
 		end
 	end
-	if keyboard and keyboard:IsShown() and isChat and target then
+	if S.keyboard and S.keyboard:IsShown() and isChat and target then
 		UpdateChatKey();
 		local boxText = target:GetText() or "";
 		if boxText ~= seenBoxText then
@@ -2013,7 +2018,7 @@ watcher:SetScript("OnUpdate", function()
 	end
 	-- Its box changed under it (the mail sent and its boxes cleared, a box's Enter, a link put in): the
 	-- preview, cursor and name keys follow at once, not at the next key.
-	if keyboard and keyboard:IsShown() and target then
+	if S.keyboard and S.keyboard:IsShown() and target then
 		local before = text;
 		Sync();
 		if text ~= before then
@@ -2025,7 +2030,7 @@ watcher:SetScript("OnUpdate", function()
 		return;
 	end
 	lastFocus = focus;
-	if keyboard and keyboard:IsShown() then
+	if S.keyboard and S.keyboard:IsShown() then
 		if focus and focus ~= target then
 			SwitchTo(focus);
 		end
@@ -2063,7 +2068,7 @@ watcher:SetScript("OnEvent", function(_, event, ...)
 		Close(); -- the text stays in the box
 		EndPreview(); -- (the moment before combat locks it)
 	else -- PLAYER_REGEN_ENABLED
-		if keyboard and not keyboard:IsShown() then
+		if S.keyboard and not S.keyboard:IsShown() then
 			ClearShortcuts(); -- if combat stopped it as the keyboard closed
 			if registered then
 				Unregister(); -- a hide Blizzard refused as combat started
