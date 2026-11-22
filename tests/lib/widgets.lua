@@ -107,7 +107,8 @@ function Frame:RegisterEvent(e) self.events[e] = true end
 function Frame:UnregisterEvent(e) self.events[e] = nil end
 function Frame:SetAttribute(k, v)
 	if self.protected and world.inCombat() and not W.inSecure then
-		error("addon SetAttribute on a protected frame in combat: " .. tostring(k), 2)
+		W.blockedMessages = (W.blockedMessages or 0) + 1 -- (an addon's SetAttribute on a protected frame in combat)
+		return
 	end
 	if self.blizzard and not W.inSecure then W.violations[#W.violations + 1] = tostring(k) end
 	if world.onSetAttribute then world.onSetAttribute(self, k, v) else self.attrs[k] = v end

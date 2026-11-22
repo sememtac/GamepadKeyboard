@@ -85,6 +85,18 @@ function H.callerSource(level)
 	end
 end
 
+-- Whether any of the calls under way (from the asker's caller up) is the addon's code: a call made from a
+-- hook the addon put on a function (hooksecurefunc) is the addon's, though the hook's wrapper calls it.
+function H.addonInStack(level)
+	level = level + 1
+	while true do
+		local info = debug.getinfo(level, "S")
+		if not info then return false end
+		if H.isAddonSource(info.source) then return true end
+		level = level + 1
+	end
+end
+
 -- A short name for an addon file ("Keyboard/Chat.lua"), for messages.
 function H.shortName(source)
 	return (tostring(source or ""):gsub("^@", ""):gsub("\\", "/"):sub(#H.root + 2))

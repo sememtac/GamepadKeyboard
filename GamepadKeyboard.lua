@@ -202,7 +202,11 @@ local function Unregister()
 	if not registered or not manager or InCombatLockdown() then
 		return;
 	end
+	-- Handing the controller back focuses the box again: not a request for the keyboard (here, not only in
+	-- OnHide - after combat a hide refused as it started is retried, and the box mustn't reopen it unlisted).
+	closing = true;
 	local ok = pcall(manager.HandlePopupHide, manager, keyboard);
+	closing = false;
 	local listed = IsListed(manager);
 	registered = not (listed == false or (listed == nil and ok));
 end
@@ -255,6 +259,12 @@ local function FindInRows(rows, from, direction)
 	return nil;
 end
 
+-- Whether the keyboard may steer the controller UI now: registered with it, and out of combat (its functions
+-- wrapped for outside callers refuse an addon in combat).
+local function CanSteer()
+	return registered and not InCombatLockdown();
+end
+
 local function Override(button, direction, destination)
 	applied[button] = applied[button] or {};
 	if applied[button][direction] ~= destination then
@@ -264,7 +274,7 @@ local function Override(button, direction, destination)
 end
 
 local function RefreshNavigation()
-	if not registered or InCombatLockdown() then
+	if not CanSteer() then
 		return;
 	end
 	if SmartNavigation and SmartNavigation.RefreshButtonGroups then
@@ -297,7 +307,7 @@ end
 -- RefreshButtonGroups is), then the keyboard's target there cleared again - the cursor would go back to it
 -- later (a list closed by then, a page not shown).
 local function PointAt(button)
-	if not registered or InCombatLockdown() or not (SmartNavigation and SmartNavigation.SetTargetButtonForFrame) then
+	if not (CanSteer() and SmartNavigation and SmartNavigation.SetTargetButtonForFrame) then
 		return;
 	end
 	pcall(SmartNavigation.SetTargetButtonForFrame, SmartNavigation, keyboard, button);
@@ -790,7 +800,7 @@ local function OpenChatList(chatKey)
 	picking = true;
 	RefreshNavigation();
 	PointAt(current or chatChoices[1]);
-	if registered and not InCombatLockdown() and SmartNavigation_AddJumpNavigationOverride and SMART_NAV_INPUT_DIRECTION then
+	if CanSteer() and SmartNavigation_AddJumpNavigationOverride and SMART_NAV_INPUT_DIRECTION then
 		Override(chatKey, "UP", current or chatChoices[1]); -- (the cursor left on the key: up into the list; back as it was after)
 	end
 end
@@ -824,6 +834,9 @@ local function KeepChatDraft()
 end
 
 local function Press(button)
+	if InCombatLockdown() then
+		return; -- (closed in combat: a click that gets here anyway changes nothing - its keys can't move then)
+	end
 	local key = button.key;
 	if picking then
 		CloseChatList(); -- (a key pressed past it - X, Y, the mouse: the list goes; the chat key: just that)
@@ -1381,9 +1394,7 @@ local function CreateKeyboard()
 		ClearShortcuts();
 		aDownAt = nil; -- a press the keyboard closed under isn't a hold next time
 		HoldRing(false);
-		closing = true;
 		Unregister();
-		closing = false;
 		target = nil;
 	end);
 end
@@ -2057,6 +2068,8 @@ watcher:SetScript("OnEvent", function(_, event, ...)
 			if registered then
 				Unregister(); -- a hide Blizzard refused as combat started
 			end
+		elseif shortcutsBound then
+			BindShortcuts(); -- (still up: the controller UI may have bound its buttons over them in combat)
 		end
 		if not inEditMode then
 			EndPreview(); -- Edit Mode left in combat

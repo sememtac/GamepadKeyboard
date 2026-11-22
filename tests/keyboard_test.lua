@@ -72,10 +72,17 @@ local BOUND = { OPENCHAT = { "ENTER", "PADBACK" }, OPENCHATSLASH = { "/" }, REPL
 function GetBindingKey(binding) return unpack(BOUND[binding] or {}) end
 GAMEPAD_FACE_LEFT, GAMEPAD_FACE_TOP, GAMEPAD_SHOULDER_LEFT, GAMEPAD_SHOULDER_RIGHT = "PAD3", "PAD4", "PADLSHOULDER", "PADRSHOULDER"
 -- Override bindings, as the game keeps them: per owner and key; a priority one beats any other, and of
--- those the latest wins. Protected in combat. The controller UI binds its buttons this way (owner UIParent).
+-- those the latest wins. The controller UI binds its buttons this way (owner UIParent), in combat too; for an
+-- addon they're protected in combat (blocked).
 local overrides, overrideOrder = {}, 0
+local function BindingRefused()
+	if world.combat and H.addonInStack(3) then
+		W.blockedMessages = (W.blockedMessages or 0) + 1
+		return true
+	end
+end
 function SetOverrideBinding(owner, isPriority, k, command)
-	assert(not world.combat, "SetOverrideBinding in combat")
+	if BindingRefused() then return end
 	for i = #overrides, 1, -1 do
 		if overrides[i].owner == owner and overrides[i].key == k then table.remove(overrides, i) end
 	end
@@ -86,7 +93,7 @@ function SetOverrideBindingClick(owner, isPriority, k, name, mouseButton)
 	SetOverrideBinding(owner, isPriority, k, "CLICK " .. name .. ":" .. (mouseButton or "LeftButton"))
 end
 function ClearOverrideBindings(owner)
-	assert(not world.combat, "ClearOverrideBindings in combat")
+	if BindingRefused() then return end
 	for i = #overrides, 1, -1 do if overrides[i].owner == owner then table.remove(overrides, i) end end
 end
 local function boundTo(k)
@@ -1384,6 +1391,11 @@ check(#searches == 2 and preview() == "Ok" .. CARET, "...A left set to press Sea
 playerClick(key("ENTER"))
 check(macros[#macros] == "/s Ok" and #searches == 2, "...and Enter in chat still sends its line")
 poll()
+openChat("SAY"); poll()
+type("by mouse"); secureClick(key("ENTER"), false) -- (a click on the Enter key itself: its own secure action)
+check(macros[#macros] == "/s By mouse" and not kb:IsShown() and key("ENTER").attrs.macrotext == "",
+	"the Enter key clicked (the mouse): its own secure action sends the line, then empties")
+poll()
 -- Blizzard's other looked-through boxes, found where they are once their window has loaded.
 local function blizzardBox(parent, center, name)
 	local box = W.CreateFrame("EditBox", name, parent, "InputBoxTemplate"); box.center = center
@@ -1418,6 +1430,12 @@ type("bob")
 playerClick(key("ENTER"))
 check(#whoSearches == 1 and whoSearches[1].text == "bob" and whoSearches[1].secure and whoEnter == 0 and not kb:IsShown() and not whoBox:HasFocus(),
 	"Who: Enter presses Who's search button, securely - not the box's own Enter")
+padA(function() whoBox:SetFocus() end)
+playerClick(key("SYMBOLS"))
+secureClick(key("ENTER"), false) -- (the symbols page's Enter key, clicked)
+check(#whoSearches == 2 and whoSearches[2].secure and whoEnter == 0 and not kb:IsShown() and key("ENTER").attrs.type == "macro" and key("ENTER").attrs.clickbutton == nil,
+	"...the Enter key itself clicked (the symbols page's): the same, and it's a macro button again after")
+table.remove(whoSearches)
 -- Its button missing (a window half there): nothing pressed, and still never its own Enter.
 local whoButton = LFGWhoListFrame.WhoSearch; LFGWhoListFrame.WhoSearch = nil
 padA(function() whoBox:SetFocus() end)
@@ -1543,6 +1561,9 @@ for _ = 1, 60 do poll() end
 check(not kb.HoldPrompt.icon.holding and not key("ENTER").locked, "...A held in the list: no hold ring, Enter not lit")
 held.PAD1 = nil; secureClick(GamepadKeyboardAButton, false); poll()
 check(chatKey.text == "Guild" and #macros == before and not kb.ChatList.shown, "...and let go: Guild taken, nothing sent")
+playerClick(chatKey); choices[4]:Click() -- (the mouse)
+check(chatKey.text == "Instance" and not kb.ChatList.shown, "a chat in the list clicked with the mouse: taken")
+playerClick(chatKey); choices[5]:Click()
 playerClick(chatKey); kb:SmartNavigationCloseHandler()
 check(kb:IsShown() and not kb.ChatList.shown and chatKey.text == "Guild" and navCurrent == chatKey,
 	"B in the list: back to the keys, the chat as it was (the keyboard stays)")
@@ -1954,7 +1975,9 @@ check(not kb:IsShown() and chatBox:GetText() == "", "combat starts: the keyboard
 check((W.blockedMessages or 0) == 0 and boundTo("PAD4") == "CLICK Blizzard_PAD4:LeftButton" and boundTo("PAD1") == "CLICK Blizzard_PAD1:LeftButton",
 	"...A / X / Y / LB / RB the controller UI's again, nothing blocked")
 before = #macros
-check(pcall(secureClick, enter) and #macros == before, "its Enter pressed in combat somehow: nothing set on it, nothing sent")
+local blockedEnter = W.blockedMessages or 0
+check(pcall(secureClick, enter) and #macros == before and (W.blockedMessages or 0) == blockedEnter,
+	"its Enter pressed in combat somehow: nothing set on it (nothing blocked), nothing sent")
 world.combat = false
 chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
 openChat("SAY"); poll()
@@ -1968,8 +1991,73 @@ refuse = true
 W.fireEvent("PLAYER_REGEN_DISABLED")
 refuse = false
 check(not kb:IsShown() and indexOf(kb) ~= nil, "refused as combat started: still listed by Blizzard")
-W.fireEvent("PLAYER_REGEN_ENABLED")
-check(indexOf(kb) == nil, "...and removed after combat")
+W.fireEvent("PLAYER_REGEN_ENABLED"); poll()
+check(indexOf(kb) == nil and not kb:IsShown(), "...and removed after combat (the box focused again as it goes: not opened for)")
+chatBox:ClearFocus(); manager:FrameHidden(chatFrame); poll()
+
+-- ---- combat without its start seen (lockdown on with the keyboard still up) ------------------------------------------
+-- Every combat guard: nothing the game refuses an addon in combat is tried, and the keyboard does nothing
+-- until combat ends - the line kept.
+openChat("SAY"); poll()
+type("hi")
+local chatKeyNow = key("CHAT")
+local combatOther = W.CreateFrame("Frame", "CombatOtherPanel", UIParent)
+local blockedAt, macrosAt = W.blockedMessages or 0, #macros
+local function nothingBlocked() return (W.blockedMessages or 0) == blockedAt end
+world.combat = true
+poll(); poll()
+check(kb:IsShown() and nothingBlocked(), "combat without its start seen: the keyboard left up, nothing tried")
+navCurrent = key("a"); pressA()
+check(preview() == "Hi" .. CARET and nothingBlocked() and GamepadKeyboardAButton.attrs.type == "macro", "...A on a key: nothing typed, nothing set on its secure buttons")
+held.PAD1 = true; secureClick(GamepadKeyboardAButton, true)
+for _ = 1, 40 do poll() end
+check(not ring.holding and not key("ENTER").locked, "...A held: no ring, Enter not lit")
+held.PAD1 = nil; secureClick(GamepadKeyboardAButton, false); poll()
+check(#macros == macrosAt and kb:IsShown() and nothingBlocked(), "...let go: nothing sent")
+key("SYMBOLS"):Click() -- (the mouse)
+check(key("q") and not key("!") and nothingBlocked(), "...a click on ?123: no page change (its keys can't move in combat)")
+local qBefore = key("q").points[#key("q").points]
+S.layout:SetValue("dvorak"); S.scale:SetValue(1.25)
+check(key("q").points[#key("q").points] == qBefore and kb.scale ~= 1.25 and nothingBlocked(), "...the layout and size changed in Options: nothing moved now")
+S.layout:SetValue("qwerty"); S.scale:SetValue(1)
+SetOverrideBindingClick(UIParent, true, "PAD3", "Blizzard_Other") -- (the controller UI binding X over it)
+check(boundTo("PAD3") == "CLICK Blizzard_Other:LeftButton" and nothingBlocked(), "...the controller UI binding X over it: not bound back in combat")
+manager:FrameShown(combatOther); poll() -- LT / RT away
+check(boundTo("PAD1") == "CLICK GamepadKeyboardAButton:LeftButton" and nothingBlocked(), "...LT / RT away: its bindings left (they can't change in combat)")
+focus(kb); manager:FrameHidden(combatOther); poll()
+world.combat = false; W.fireEvent("PLAYER_REGEN_ENABLED"); poll(); poll()
+check(boundTo("PAD3") == "CLICK GamepadKeyboardDelKey:LeftButton" and preview() == "Hi" .. CARET, "after combat: X the keyboard's again, the line kept")
+-- Its bindings cleared before combat (the controller on another window), back on the keyboard in combat: left
+-- as they are until combat ends.
+manager:FrameShown(combatOther); poll()
+check(boundTo("PAD1") == "CLICK Blizzard_PAD1:LeftButton", "(on another window: A the controller UI's)")
+world.combat = true
+focus(kb); poll()
+check(boundTo("PAD1") == "CLICK Blizzard_PAD1:LeftButton" and nothingBlocked(), "back on the keyboard in combat: A not bound to it (can't be, in combat)")
+world.combat = false; W.fireEvent("PLAYER_REGEN_ENABLED"); poll()
+check(boundTo("PAD1") == "CLICK GamepadKeyboardAButton:LeftButton", "...after combat: A the keyboard's again")
+manager:FrameHidden(combatOther); poll()
+-- The chat list open as combat comes: B closes the list, nothing steered.
+playerClick(chatKeyNow)
+check(kb.ChatList.shown, "(the chat list open)")
+local targetsAt = #navTargets
+world.combat = true
+kb:SmartNavigationCloseHandler()
+check(not kb.ChatList.shown and kb:IsShown() and #navTargets == targetsAt and nothingBlocked(), "...B in combat: the list goes, the cursor and the D-pad left alone")
+-- The game hiding it in combat (the whole UI hidden: Alt-Z): what it tells Blizzard waits for combat's end.
+W.inSecure = true; kb:Hide(); W.inSecure = false
+check(not kb:IsShown() and indexOf(kb) ~= nil and boundTo("PAD1") == "CLICK GamepadKeyboardAButton:LeftButton" and nothingBlocked(),
+	"hidden by the game in combat: still listed by Blizzard, its bindings left, nothing blocked")
+world.combat = false; W.fireEvent("PLAYER_REGEN_ENABLED"); poll()
+check(indexOf(kb) == nil and boundTo("PAD1") == "CLICK Blizzard_PAD1:LeftButton", "...after combat: taken off Blizzard's list, A the controller UI's again")
+chatBox.text = ""; manager:FrameHidden(chatFrame); poll()
+openChat("SAY"); poll()
+check(kb:IsShown() and preview() == "Hi" .. CARET, "...the line back the next time")
+endChat()
+-- A blocked report in combat (a protected call refused): it says so.
+W.fireEvent("ADDON_ACTION_BLOCKED", "GamepadKeyboard", "SomeProtectedCall()")
+check(world.printed[#world.printed]:find("SomeProtectedCall()", 1, true) and world.printed[#world.printed]:find("in combat", 1, true),
+	"blocked in combat: it says what")
 
 -- Our frames never carry fields Blizzard's focus manager or SmartNavigation read without a taint barrier.
 local unsafe = { "returnToPlayerControl", "FrameControlManagerGroup", "skipGamepadAutoFocus", "disableFrameFocusPagingWhenFocused",

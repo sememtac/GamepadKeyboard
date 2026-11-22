@@ -18,6 +18,9 @@
   chat could whisper someone else, or the keyboard stopped opening on chat. It now keeps who (or which
   channel) the line went to, as the game's own Enter does. A line left unsent stays in its chat unless a
   whisper is started after it.
+- Fixed: if combat started just as the keyboard closed and the game held on to it, the keyboard could pop
+  back up after combat without the controller working on it. And if it stays up into combat, buttons the
+  controller UI took over then are the keyboard's again afterwards.
 - The Auction House's buy quantity (a stack) says why it doesn't open, and what to do instead: A on a row
   of the price list buys up to it. So does the Filter list's level range: tick Usable Only instead.
 
