@@ -46,6 +46,9 @@ local ADDON_NAME, ns = ...;
 -- (read at each use: never copied into a local that would keep an old value).
 local S = {};
 ns.S = S;
+S.closing = false; -- while closing hands the controller back (which focuses the box again)
+S.handedBack = nil; -- the box the keyboard just went back to: not opened for again until focus moves on
+S.previewing = false; -- shown in Edit Mode to be placed, not typing anywhere
 S.page = "qwerty"; -- a letters page (the layout's), "symbols", or "numbers" (a box of numbers only)
 S.picking = false; -- the chat list is open (see OpenChatList)
 S.shift = false;
@@ -118,9 +121,6 @@ local seenBoxText; -- the chat box's own text last frame (a line Blizzard put th
 local toldBoxLine = false; -- said once: a line in the chat box is sent from there
 local lastNamesBox; -- the last box typed into that isn't chat (for /gk names)
 local lastBoxName; -- the last box typed into (for a report if the game blocks the addon)
-local handedBack; -- the box the keyboard just went back to: not opened for again until focus moves on
-local closing = false; -- while closing hands the controller back (which focuses the box again)
-local previewing = false; -- shown in Edit Mode to be placed, not typing anywhere
 local lastInput = "gamepad"; -- what the player pressed last: "gamepad", "keyboard" or "mouse"
 local chatHadFocus; -- while open over chat: whether the chat box had typing focus last frame
 local chatChoices = {}; -- its buttons, each with the chat it's for (.entry)
@@ -209,9 +209,9 @@ local function Unregister()
 	end
 	-- Handing the controller back focuses the box again: not a request for the keyboard (here, not only in
 	-- OnHide - after combat a hide refused as it started is retried, and the box mustn't reopen it unlisted).
-	closing = true;
+	S.closing = true;
 	local ok = pcall(manager.HandlePopupHide, manager, S.keyboard);
-	closing = false;
+	S.closing = false;
 	local listed = IsListed(manager);
 	registered = not (listed == false or (listed == nil and ok));
 end
@@ -1382,7 +1382,7 @@ local function CreateKeyboard()
 			prompt.icon:SetShown(UsesGamepadUI());
 			prompt.text:SetShown(UsesGamepadUI());
 		end
-		if not previewing then
+		if not S.previewing then
 			Register();
 			RefreshNavigation();
 		end
@@ -1394,7 +1394,7 @@ local function CreateKeyboard()
 		if S.isChat and S.target then
 			KeepChatDraft();
 		end
-		handedBack = S.target;
+		S.handedBack = S.target;
 		HideChatList();
 		ClearShortcuts();
 		aDownAt = nil; -- a press the keyboard closed under isn't a hold next time
@@ -1646,7 +1646,7 @@ end
 -- Asked for again on a box that already has focus (A on a name box again, Chat chosen again on the menu
 -- dial): no focus change to watch, so these are hooked. Not while closing, which focuses the box itself.
 local function Requested(box)
-	if closing or not box or box:IsForbidden() or not box:HasFocus() then
+	if S.closing or not box or box:IsForbidden() or not box:HasFocus() then
 		return;
 	end
 	if ShouldOpen(box) then
@@ -1931,7 +1931,7 @@ local function EditModeEnter()
 	if not S.keyboard.EditModeOverlay then
 		CreateEditModeOverlay();
 	end
-	previewing = true;
+	S.previewing = true;
 	S.target, S.isChat, S.suggesting = nil, false, false;
 	S.text, S.cursor, S.page, S.shift = "", 0, LettersPage(), false;
 	S.keyboard:SetFrameStrata(EDIT_MODE_STRATA);
@@ -1943,10 +1943,10 @@ end
 -- The preview goes - not in combat: the keyboard holds secure buttons, so only Blizzard's UI may hide it
 -- then (finished as combat ends).
 local function EndPreview()
-	if not previewing or InCombatLockdown() then
+	if not S.previewing or InCombatLockdown() then
 		return;
 	end
-	previewing = false;
+	S.previewing = false;
 	S.keyboard.EditModeOverlay:Hide();
 	S.keyboard:Hide();
 	S.keyboard:SetFrameStrata("FULLSCREEN_DIALOG");
@@ -1972,7 +1972,7 @@ watcher:SetScript("OnUpdate", function()
 	end
 	UpdateShortcuts();
 	UpdateHoldHint();
-	if previewing then
+	if S.previewing then
 		lastFocus = GetCurrentKeyBoardFocus(); -- in Edit Mode: not typing anywhere, and nothing to open after it
 		return;
 	end
@@ -2036,8 +2036,8 @@ watcher:SetScript("OnUpdate", function()
 		end
 		return;
 	end
-	if focus ~= handedBack then
-		handedBack = nil;
+	if focus ~= S.handedBack then
+		S.handedBack = nil;
 		if focus and ShouldOpen(focus) then
 			Open(focus);
 		end
@@ -2078,7 +2078,7 @@ watcher:SetScript("OnEvent", function(_, event, ...)
 		end
 		if not inEditMode then
 			EndPreview(); -- Edit Mode left in combat
-		elseif not previewing then
+		elseif not S.previewing then
 			EditModeEnter(); -- Edit Mode still open: the preview back
 		end
 	end
