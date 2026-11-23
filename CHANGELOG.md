@@ -21,6 +21,7 @@
 - Fixed: if combat started just as the keyboard closed and the game held on to it, the keyboard could pop
   back up after combat without the controller working on it. And if it stays up into combat, buttons the
   controller UI took over then are the keyboard's again afterwards.
+- Fixed: holding A, then LT / RT to another window, left the hold ring filling and Enter lit.
 - The keyboard is a little wider (an even margin round the keys) and the bottom row no longer touches the
   footer.
 - Under the hood: the addon is several files now, each part on its own, and its tests check far more
